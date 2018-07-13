@@ -10,8 +10,9 @@ are documented in:
 
 Please cite this paper if you use the software in any academic
 context.  Further description is available on the [website of the AG
-Computational Data Analysis](http://www.math.uni-bremen.de/cda/software.html)
-of the University of Bremen.  There is also the [precompiled API
+Computational Data
+Analysis](http://www.math.uni-bremen.de/cda/software.html#Musisep) of
+the University of Bremen.  There is also the [precompiled API
 documentation](http://www.math.uni-bremen.de/cda/software/Musisep-API).
 
 ## System Requirements
@@ -38,8 +39,8 @@ make -C docs html
 ```
 
 The input data can be obtained from:
-<http://math.uni-bremen.de/cda/software/Musisep-data.zip>.  It should
-be unzipped to the main directory.
+<http://www.math.uni-bremen.de/cda/software/Musisep-data.zip>.  It
+should be unzipped to the main directory.
 
 ## Running the test case
 
