@@ -408,9 +408,7 @@ def test_learn(fsigma, tone_num, inst_num,
         original dictionary and the SDR, SID, SAR with the trained dictionary
     """
 
-    inst_dict = pursuit.gen_inst_dict(inst_num, har)
-    inst_dict = inst_dict * np.random.random((har, inst_num))
-    inst_dict = inst_dict / np.amax(inst_dict, axis=0, keepdims=True)
+    inst_dict = gen_random_inst_dict(har, inst_num)
     harscale = pursuit.calc_harscale(20, 20480, m)
 
     dl = Learner(fsigma, tone_num, inst_num * 2, har, m, lifetime,
@@ -461,9 +459,9 @@ def test_learn(fsigma, tone_num, inst_num,
                                 for spect in inst_spectrums_trained])
 
     return np.hstack((performance.select_perm(
-        *performance.measures(test_spects, orig_spects))[1].T,
+        *performance.measures(orig_spects, test_spects))[1].T,
                       performance.select_perm(
-        *performance.measures(test_spects, trained_spects))[1].T))
+        *performance.measures(trained_spects, test_spects))[1].T))
     
 def test_learn_multi(fsigma, tone_num, inst_num,
                      pexp, qexp, har, m, runs, test_samples, lifetime,
