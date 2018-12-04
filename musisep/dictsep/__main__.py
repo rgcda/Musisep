@@ -132,9 +132,10 @@ def main(mixed_soundfile, orig_soundfiles, inst_num, tone_num, pexp, qexp,
                          dict_spectrum_lin, inst_spectrums_lin],
                         open('output/{}-spect.pkl'.format(out_name), 'wb'))
     
-        inst_spectrums_lin, mask_spect = dictlearn.mask_spectrums(
-            inst_spectrums_lin, orig_spectrum)
-        dict_spectrum_lin = dict_spectrum_lin * mask_spect
+        if mask:
+            inst_spectrums_lin, mask_spect = dictlearn.mask_spectrums(
+                inst_spectrums_lin, orig_spectrum)
+            dict_spectrum_lin = dict_spectrum_lin * mask_spect
 
         if plot_range is not None:
             spect.spectwrite('output/{}-synth.png'.format(out_name),
