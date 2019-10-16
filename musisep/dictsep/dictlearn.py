@@ -20,6 +20,35 @@ from . import adam_b
 from ..audio import wav
 from ..audio import performance
 
+beta = 0.9
+
+def make_closures(fsigma):
+    """
+    Build the functions that give the bounds and initial values.
+
+    Parameters
+    ----------
+    fsigma : float
+        Standard deviation of the Gaussian in the time domain.
+
+    Returns
+    -------
+    make_bounds : lambda (length)
+        Lambda that gives the bounds for `length` peaks
+    make_inits : lambda (length)
+        Lambda that gives the initial values `length` peaks
+    """
+
+    make_bounds = (lambda length :
+                   [(0, None)] * length
+                   + [(None, None)] * length
+                   + [(fsigma*0.8, fsigma*1.5)] * length
+                   + [(0, 2e-3)] * length)
+    make_inits = (lambda length :
+                  (np.repeat(fsigma, length), np.zeros(length)))
+
+    return make_bounds, make_inits
+
 def stoch_grad(y, inst_dict, tone_num, adam, fsigma, harscale, baseshift,
                inst_spect, pexp, qexp):
     """
@@ -32,7 +61,7 @@ def stoch_grad(y, inst_dict, tone_num, adam, fsigma, harscale, baseshift,
     inst_dict : ndarray
         Dictionary containing the relative amplitudes of the harmonics
     tone_num : int
-        Maximum number of simultaneous tones
+        Maximum number of simultaneous tones for each instrument
     adam : Adam_B
         Container object for the ADAM optimizer
     fsigma : float
@@ -60,10 +89,14 @@ def stoch_grad(y, inst_dict, tone_num, adam, fsigma, harscale, baseshift,
 
     y = np.asarray(y)
 
+    fixed_params = (inst_dict, harscale)
+    make_bounds, make_inits = make_closures(fsigma)
+    
     peaks, reconstruction = pursuit.peak_pursuit(
-        y, tone_num, 1, tone_num*2,
-        inst_dict, fsigma, harscale, pursuit.fft_selector,
-        (baseshift, inst_spect, qexp), pexp, qexp, 0.9)
+        y, tone_num, 1, tone_num*inst_dict.shape[1]*2, inst_dict.shape[1],
+        pursuit.inst_shift, pursuit.inst_shift_obj, pursuit.inst_shift_grad,
+        make_bounds, make_inits, fixed_params, pursuit.fft_selector,
+        (baseshift, inst_spect, qexp), pexp, qexp, beta)
 
     inst_amps = np.zeros(inst_dict.shape[1])
     for i in range(inst_dict.shape[1]):
@@ -71,14 +104,14 @@ def stoch_grad(y, inst_dict, tone_num, adam, fsigma, harscale, baseshift,
         inst_amps[i] = np.sum(peaks.amps[idcs])
 
     grad = pursuit.inst_shift_dict_grad(peaks.get_array(), peaks.insts,
-                                        inst_dict, harscale, pexp, qexp,
+                                        fixed_params, pexp, qexp,
                                         y.size, len(peaks), y)
     abserr_old = np.linalg.norm(reconstruction**qexp - y**qexp)
     print("abserr (before): %g" % abserr_old)
 
     inst_dict = adam.step(-grad)
 
-    reconstruction_new = pursuit.inst_shift(peaks, inst_dict, harscale, pexp,
+    reconstruction_new = pursuit.inst_shift(peaks, fixed_params, pexp,
                                             y.size, len(peaks))
     abserr_new = np.linalg.norm(reconstruction_new**qexp - y**qexp)
     print("abserr  (after): %g" % abserr_new)
@@ -142,7 +175,7 @@ class Learner:
     fsigma : float
         Standard deviation (frequency)
     tone_num : int
-        Maximum number of simultaneous tones
+        Maximum number of simultaneous tones for each instrument
     inst_num : int
         Number of instruments in the dictionary
     har : int
@@ -155,6 +188,8 @@ class Learner:
         Exponent for the addition of sinusoids
     qexp : float
         Exponent to be applied on the spectrum
+    init : array_like
+        Initial value for the dictionary
     """
 
     def __init__(self, fsigma, tone_num, inst_num, har, m, lifetime,
@@ -171,7 +206,7 @@ class Learner:
         if init is None:
             self.inst_dict = gen_random_inst_dict(har, inst_num)
         else:
-            self.inst_dict = init
+            self.inst_dict = np.asarray(init)
 
         self.adam = adam_b.Adam_B(self.inst_dict, alpha=1e-3)
 
@@ -200,9 +235,10 @@ class Learner:
 
         y = np.asarray(y)
 
+        fixed_params = (self.inst_dict, self.harscale)
         inst_spect = pursuit.gen_inst_spect(
-            self.baseshift, self.fsigma, self.inst_dict, self.harscale,
-            self.pexp, self.qexp, self.baseshift + self.m)
+            self.baseshift, self.fsigma, fixed_params,
+            self.pexp, self.qexp, self.baseshift + self.m, self.inst_dict.shape[1])
         self.inst_dict, reconstruction, inst_amps_new = \
             stoch_grad(y, self.inst_dict, self.tone_num, self.adam,
                        self.fsigma, self.harscale, self.baseshift,
@@ -261,7 +297,7 @@ def synth_spect(spect, tone_num, inst_dict, fsigma, spectheight, pexp, qexp,
     spect : array_like
         Original log-frequency spectrogram of the recording
     tone_num : int
-        Maximum number of simultaneous tones
+        Maximum number of simultaneous tones for each instrument
     inst_dict : ndarray
         Dictionary containing the relative amplitudes of the harmonics
     fsigma : float
@@ -293,6 +329,7 @@ def synth_spect(spect, tone_num, inst_dict, fsigma, spectheight, pexp, qexp,
 
     spect = np.asarray(spect)
     inst_dict = np.asarray(inst_dict)
+    tone_num = np.asarray(tone_num)
     
     minfreq = minfreq * (2 * spectheight)
     maxfreq = maxfreq * (2 * spectheight)
@@ -301,9 +338,10 @@ def synth_spect(spect, tone_num, inst_dict, fsigma, spectheight, pexp, qexp,
     har = inst_dict.shape[0]
     baseshift = m
     harscale = pursuit.calc_harscale(20, 20480, m)
+    fixed_params = (inst_dict, harscale)
     inst_spect = pursuit.gen_inst_spect(
-        baseshift, fsigma, inst_dict, harscale,
-        pexp, qexp, baseshift + m)
+        baseshift, fsigma, fixed_params,
+        pexp, qexp, baseshift + m, inst_dict.shape[1])
 
     dict_spectrum = np.zeros(spect.shape)
     dict_spectrum_lin = np.zeros((spectheight, spect.shape[1]))
@@ -316,13 +354,18 @@ def synth_spect(spect, tone_num, inst_dict, fsigma, spectheight, pexp, qexp,
 
     numfreqs = spect.shape[0]
 
+    make_bounds, make_inits = make_closures(fsigma)
+
     for j in range(spect.shape[1]):
         print("reconstruction {} out of {}".format(j, spect.shape[1]))
         y = spect[:, j]
         peaks, reconstruction = \
-            pursuit.peak_pursuit(y, tone_num, 1, tone_num*2, inst_dict, fsigma,
-                                 harscale, pursuit.fft_selector,
-                                 (baseshift, inst_spect, qexp), pexp, qexp, 0.9)
+            pursuit.peak_pursuit(y, tone_num, 1, tone_num*inst_dict.shape[1]*2,
+                                 inst_dict.shape[1],
+                                 pursuit.inst_shift, pursuit.inst_shift_obj, pursuit.inst_shift_grad,
+                                 make_bounds, make_inits,
+                                 fixed_params, pursuit.fft_selector,
+                                 (baseshift, inst_spect, qexp), pexp, qexp, beta)
         dict_spectrum[:, j] = reconstruction
         lin_peaks = peaks.copy()
         lin_peaks.shifts = (np.exp(peaks.shifts * (np.log(maxfreq / minfreq)
@@ -334,9 +377,8 @@ def synth_spect(spect, tone_num, inst_dict, fsigma, spectheight, pexp, qexp,
         dict_spectrum_lin[:, j] = reconstruction
         for i in range(inst_dict_size):
             idcs, = np.where(peaks.insts == i)
-            reconstruction = pursuit.inst_shift(peaks[idcs], inst_dict,
-                                                harscale, pexp,
-                                                m, idcs.size)
+            reconstruction = pursuit.inst_shift(peaks[idcs], fixed_params,
+                                                pexp, m, idcs.size)
             inst_spectrums[i][:, j] = reconstruction
             reconstruction = pursuit.inst_scale(lin_peaks[idcs], inst_dict,
                                                 pexp, spectheight, idcs.size)
@@ -365,7 +407,7 @@ def mask_spectrums(spects, orig_spect):
 
     spects = [np.asarray(s) for s in spects]
 
-    total_spect = np.sqrt(sum([np.square(s) for s in spects]))
+    total_spect = sum([s for s in spects])
     mask_spect = orig_spect / (total_spect + 1e-40)
     for i in range(len(spects)):
         spects[i] = spects[i] * mask_spect
@@ -383,7 +425,7 @@ def test_learn(fsigma, tone_num, inst_num,
     fsigma : float
         Width of the Gaussians in the log-frequency spectrogram
     tone_num : int
-        Maximum number of simultaneous tones
+        Maximum number of simultaneous tones for each instrument
     inst_num : int
        Number of instruments in the dictionaries
     pexp : float
@@ -475,7 +517,7 @@ def test_learn_multi(fsigma, tone_num, inst_num,
     fsigma : float
         Width of the Gaussians in the log-frequency spectrogram
     tone_num : int
-        Maximum number of simultaneous tones
+        Maximum number of simultaneous tones for each instrument
     inst_num : int
        Number of instruments in the dictionaries
     pexp : float
@@ -530,7 +572,7 @@ def learn_spect_dict(spect, fsigma, tone_num, inst_num, pexp, qexp,
     fsigma : float
         Standard deviation (frequency)
     tone_num : int
-        Maximum number of simultaneous tones
+        Maximum number of simultaneous tones for each instrument
     inst_num : int
         Number of instruments in the dictionary
     pexp : float

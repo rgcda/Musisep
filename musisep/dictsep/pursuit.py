@@ -16,6 +16,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from . import exptool
+from ..audio import spect
 
 def calc_harscale(minfreq, maxfreq, numfreqs):
     """
@@ -49,23 +50,21 @@ class Peaks:
         Amplitudes
     shifts : array_like
         Fundamental frequencies
-    sigmas : array_like
-        Standard deviations (frequency)
-    spreads : array_like
-        Inharmonicities
+    params : array_like
+        Extra parameters (in the rows)
     insts : array_like
         Instrument numbers
     """
 
-    def __init__(self, amps, shifts, sigmas, spreads, insts):
+    def __init__(self, amps, shifts, params, insts):
         self.amps = np.asarray(amps, dtype='double')
         self.shifts = np.asarray(shifts, dtype='double')
-        self.sigmas = np.asarray(sigmas, dtype='double')
-        self.spreads = np.asarray(spreads, dtype='double')
+        self.params = np.asarray(params, dtype='double')
         self.insts = np.asarray(insts, dtype='int')
+        self.paramlen = len(self.params)
 
     @classmethod
-    def empty(cls):
+    def empty(cls, params):
         """
         Construct an empty `Peaks` object.
 
@@ -75,11 +74,11 @@ class Peaks:
             A `Peaks` object with zero peaks
         """
 
-        return cls(np.zeros(0), np.zeros(0), np.zeros(0),
-                   np.zeros(0), np.zeros(0))
+        return cls(np.zeros(0), np.zeros(0), np.asarray(params),
+                   np.zeros(0))
 
     @classmethod
-    def from_array(cls, array, insts):
+    def from_array(cls, array, insts, paramlen):
         """
         Construct a `Peaks` object from an array.
 
@@ -91,38 +90,39 @@ class Peaks:
             the inharmoniticies
         insts : array_like
             Instrument numbers
+        paramlen : int
+            Number of extra parameters
         """
 
         array = np.asarray(array)
         insts = np.asarray(insts)
 
-        return cls(*array.reshape((4, insts.size)), insts)
+        array = array.reshape((paramlen + 2, insts.size))
+        return cls(*array[:2], array[2:], insts)
 
     def __len__(self):
         return self.insts.size
 
     def __getitem__(self, key):
-        new = Peaks(self.amps[key], self.shifts[key], self.sigmas[key],
-                    self.spreads[key], self.insts[key])
+        new = Peaks(self.amps[key], self.shifts[key], self.params[:, key],
+                    self.insts[key])
         return new
 
     def get_params(self):
         """
         Returns
         -------
-        amps : array_like
+        amps : ndarray
             Amplitudes
-        shifts : array_like
+        shifts : ndarray
             Fundamental frequencies
-        sigmas : array_like
-            Standard deviations (frequency)
-        spreads : array_like
-            Inharmonicities
-        insts : array_like
+        params : ndarray
+            Extra parameters
+        insts : ndarray
             Instrument numbers
         """
 
-        return self.amps, self.shifts, self.sigmas, self.spreads, self.insts
+        return self.amps, self.shifts, self.params, self.insts
 
     def get_array(self):
         """
@@ -135,7 +135,7 @@ class Peaks:
         """
 
         return np.concatenate((self.amps, self.shifts,
-                               self.sigmas, self.spreads))
+                               np.ravel(self.params)))
 
     def copy(self):
         """
@@ -145,8 +145,8 @@ class Peaks:
             Copy of the contained peak parameters
         """
 
-        new = Peaks(self.amps.copy(), self.shifts.copy(), self.sigmas.copy(),
-                    self.spreads.copy(), self.insts.copy())
+        new = Peaks(self.amps.copy(), self.shifts.copy(), self.params.copy(),
+                    self.insts.copy())
         return new
     
     def merge(self, new):
@@ -162,11 +162,10 @@ class Peaks:
 
         self.amps = np.concatenate((self.amps, new.amps))
         self.shifts = np.concatenate((self.shifts, new.shifts))
-        self.sigmas = np.concatenate((self.sigmas, new.sigmas))
-        self.spreads = np.concatenate((self.spreads, new.spreads))
+        self.params = np.concatenate((self.params, new.params), axis=1)
         self.insts = np.concatenate((self.insts, new.insts))
 
-def inst_shift(peaks, inst_dict, harscale, pexp, m, n):
+def inst_shift(peaks, fixed_params, pexp, m, n):
     """
     Synthesize the log-frequency spectrum.
 
@@ -174,10 +173,8 @@ def inst_shift(peaks, inst_dict, harscale, pexp, m, n):
     ----------
     peaks : Peaks
         Peak parameters
-    inst_dict : array_like
-        Dictionary containing the relative amplitudes of the harmonics
-    harscale : float
-        Scaling factor
+    fixed_params : sequence
+        Extra fixed parameters for the synthesizer
     pexp : float
         Exponent for the addition of sinusoids
     m : int
@@ -191,9 +188,11 @@ def inst_shift(peaks, inst_dict, harscale, pexp, m, n):
         Log-frequency spectrum
     """
 
-    inst_dict = np.asarray(inst_dict)
-    
-    reconstruction = exptool.inst_shift(*peaks.get_params(),
+    inst_dict, harscale = fixed_params
+
+    amps, shifts, params, insts = peaks.get_params()
+    sigmas, spreads = params
+    reconstruction = exptool.inst_shift(amps, shifts, sigmas, spreads, insts,
                                         inst_dict, harscale, pexp, m, n) 
     return np.asarray(reconstruction) ** (1/pexp)
 
@@ -220,11 +219,13 @@ def inst_scale(peaks, inst_dict, pexp, m, n):
         Linear-frequency spectrum
     """
 
-    reconstruction = exptool.inst_scale(*peaks.get_params(),
+    amps, shifts, params, insts = peaks.get_params()
+    sigmas, spreads = params
+    reconstruction = exptool.inst_scale(amps, shifts, sigmas, spreads, insts,
                                         inst_dict, pexp, m, n) 
     return np.asarray(reconstruction) ** (1/pexp)
 
-def inst_shift_obj(peak_array, insts, inst_dict, harscale, pexp, qexp,
+def inst_shift_obj(peak_array, insts, fixed_params, pexp, qexp,
                    m, n, y):
     """
     Least-squares objective function for the log-frequency spectrum.
@@ -235,10 +236,8 @@ def inst_shift_obj(peak_array, insts, inst_dict, harscale, pexp, qexp,
         Peak parameters in array form
     insts : array_like
         Instrument numbers
-    inst_dict : array_like
-        Dictionary containing the relative amplitudes of the harmonics
-    harscale : float
-        Scaling factor
+    fixed_params : sequence
+        Extra fixed parameters for the synthesizer
     pexp : float
         Exponent for the addition of sinusoids
     qexp : float
@@ -258,12 +257,13 @@ def inst_shift_obj(peak_array, insts, inst_dict, harscale, pexp, qexp,
 
     y = np.asarray(y)
 
-    reconstruction = inst_shift(Peaks.from_array(peak_array, insts),
-                                inst_dict, harscale, pexp, m, n)
-
+    reconstruction = inst_shift(Peaks.from_array(peak_array, insts, 2),
+                                fixed_params, pexp, m, n)
+    reconstruction = np.maximum(reconstruction, 0)
+    
     return np.sum(np.square(reconstruction**qexp - y**qexp)) / 2
 
-def inst_shift_grad(peak_array, insts, inst_dict, harscale, pexp, qexp,
+def inst_shift_grad(peak_array, insts, fixed_params, pexp, qexp,
                     m, n, y):
     """
     Least-squares gradient function for the log-frequency spectrum
@@ -275,10 +275,8 @@ def inst_shift_grad(peak_array, insts, inst_dict, harscale, pexp, qexp,
         Peak parameters in array form
     insts : array_like
         Instrument numbers
-    inst_dict : array_like
-        Dictionary containing the relative amplitudes of the harmonics
-    harscale : float
-        Scaling factor
+    fixed_params : sequence
+        Extra fixed parameters for the synthesizer
     pexp : float
         Exponent for the addition of sinusoids
     qexp : float
@@ -296,18 +294,22 @@ def inst_shift_grad(peak_array, insts, inst_dict, harscale, pexp, qexp,
         Least-squares gradient
     """
 
-    peaks = Peaks.from_array(peak_array, insts)
-    reconstruction = inst_shift(peaks, inst_dict, harscale, pexp, m, n)
-    reconstruction = np.asarray(reconstruction)
+    inst_dict, harscale = fixed_params
+
+    peaks = Peaks.from_array(peak_array, insts, 2)
+    reconstruction = inst_shift(peaks, fixed_params, pexp, m, n)
+    reconstruction = np.maximum(reconstruction, 0)
+    amps, shifts, params, insts = peaks.get_params()
+    sigmas, spreads = params
     expvec = ((reconstruction**qexp - y**qexp)
               * (reconstruction+1e-40) ** (qexp - pexp) * qexp)
-    grad = exptool.inst_shift_grad(expvec, *peaks.get_params(),
+    grad = exptool.inst_shift_grad(expvec, amps, shifts, sigmas, spreads, insts,
                                    inst_dict, harscale, pexp-1, m, n)
     grad = np.asarray(grad)
 
     return grad
 
-def inst_shift_dict_grad(peak_array, insts, inst_dict, harscale, pexp, qexp,
+def inst_shift_dict_grad(peak_array, insts, fixed_params, pexp, qexp,
                          m, n, y):
     """
     Least-squares gradient function for the log-frequency spectrum
@@ -319,10 +321,8 @@ def inst_shift_dict_grad(peak_array, insts, inst_dict, harscale, pexp, qexp,
         Peak parameters in array form
     insts : array_like
         Instrument numbers
-    inst_dict : array_like
-        Dictionary containing the relative amplitudes of the harmonics
-    harscale : float
-        Scaling factor
+    fixed_params : sequence
+        Extra fixed parameters for the synthesizer
     pexp : float
         Exponent for the addition of sinusoids
     qexp : float
@@ -340,38 +340,20 @@ def inst_shift_dict_grad(peak_array, insts, inst_dict, harscale, pexp, qexp,
         Least-squares gradient w.r.t. the dictionary
     """
 
+    inst_dict, harscale = fixed_params
+
     y = np.asarray(y)
-    peaks = Peaks.from_array(peak_array, insts)
-    reconstruction = inst_shift(peaks, inst_dict, harscale, pexp, m, n)
+    peaks = Peaks.from_array(peak_array, insts, 2)
+    reconstruction = inst_shift(peaks, fixed_params, pexp, m, n)
+    amps, shifts, params, insts = peaks.get_params()
+    sigmas, spreads = params
     expvec = ((reconstruction**qexp - y**qexp)
               * (reconstruction+1e-40) ** (qexp - pexp) * qexp)
-    grad = exptool.inst_shift_dict_grad(expvec, *peaks.get_params(),
-                                        inst_dict, harscale, pexp-1, m, n)
+    grad = exptool.inst_shift_dict_grad(expvec, amps, shifts, sigmas, spreads,
+                                        insts, inst_dict, harscale, pexp-1, m, n)
     grad = np.asarray(grad)
 
     return grad
-
-def make_bounds(fsigma, length):
-    """
-    Compute sensible bounds for the peak parameters.
-
-    Parameters
-    ----------
-    fsigma : float
-        Standard deviation (frequency)
-    length : int
-        Number of instruments
-
-    Returns
-    -------
-    bounds : list of tuple
-        Bounds for the optimizer
-    """    
-    
-    return ([(0, None)] * length
-            + [(None, None)] * length
-            + [(fsigma*0.8, fsigma*1.5)] * length
-            + [(0, 2e-3)] * length)
 
 def max_selector(y, prenum, n):
     """
@@ -454,7 +436,8 @@ def fft_selector(y, prenum, baseshift, inst_spect, qexp):
 
     return amps[idcs], keys[idcs], insts[idcs]
 
-def peak_pursuit(y, num, prenum, runs, inst_dict, fsigma, harscale,
+def peak_pursuit(y, nums, prenum, runs, n, inst_shift, inst_shift_obj,
+                 inst_shift_grad, make_bounds, make_inits, fixed_params,
                  selector, selector_args, pexp, qexp, beta=1, init=None):
     """
     Sparse pursuit algorithm for the identification of peaks in a spectrum.
@@ -466,13 +449,23 @@ def peak_pursuit(y, num, prenum, runs, inst_dict, fsigma, harscale,
     num : int
         Maximum number of peaks
     prenum : int
-        Number of new peaks to consider per step
-    inst_dict : ndarray
-        Dictionary containing the relative amplitudes of the harmonics
-    fsigma : float
-        Standard deviation (frequency)
-    harscale : float
-        Scaling factor
+        Number of new peaks to consider per iteration
+    runs : int
+        Maximum number of training iterations
+    n : int
+        Number of patterns/instruments
+    inst_shift : callable (peaks, fixed_params, pexp, m, n)
+        Synthesizing function
+    inst_shift_obj : callable (peak_array, insts, fixed_params, pexp, qexp, m, n, y)
+        Synthesizing function objective
+    inst_shift_grad : callable (peak_array, insts, fixed_params, pexp, qexp, m, n, y)
+        Synthesizing function gradient
+    make_bounds : lambda (length)
+        Lambda that gives the bounds for `length` peaks
+    make_inits : lambda (length)
+        Lambda that gives the initial values `length` peaks
+    fixed_params : sequence
+        Extra fixed parameters for the synthesizer
     selector : function
         Callback selector accepting `y` and `prenum` as arguments
     selector_args : sequence
@@ -495,19 +488,18 @@ def peak_pursuit(y, num, prenum, runs, inst_dict, fsigma, harscale,
     """
 
     y = np.asarray(y)
-    inst_dict = np.asarray(inst_dict)
-
+    nums = np.asarray(nums)
+    
     m = y.size
-    n = inst_dict.shape[1]
 
     if init is None:
         reconstruction = None
-        peaks = Peaks.empty()
+        peaks = Peaks.empty(make_inits(0))
     else:
         peaks = init
 
-    reconstruction = inst_shift(peaks, inst_dict, harscale, pexp,
-                                m, len(peaks))
+    reconstruction = inst_shift(peaks, fixed_params, pexp, m, len(peaks))
+
     r = y**qexp - reconstruction**qexp
 
     for i in range(runs):
@@ -519,47 +511,49 @@ def peak_pursuit(y, num, prenum, runs, inst_dict, fsigma, harscale,
 
         old_peaks = peaks.copy()
 
-        if (amps < 0).any():
-            print("amps: {}".format(amps))
-        
         new_peaks = Peaks(amps ** (1/qexp), keys,
-                          np.repeat(fsigma, keys.size),
-                          np.zeros(keys.size), new_insts)
+                          make_inits(keys.size), new_insts)
         peaks.merge(new_peaks)
 
-        bounds = make_bounds(fsigma, len(peaks))
+        bounds = make_bounds(len(peaks))
 
         res = scipy.optimize.fmin_l_bfgs_b(
             inst_shift_obj, peaks.get_array(),
-            args=(peaks.insts, inst_dict, harscale, pexp, qexp, m,
+            args=(peaks.insts, fixed_params, pexp, qexp, m,
                   len(peaks), y),
             bounds=bounds,
             fprime=inst_shift_grad,
             #factr=1e3,
             disp=0)
 
-        peaks = Peaks.from_array(res[0], peaks.insts)
+        peaks = Peaks.from_array(res[0], peaks.insts, len(make_inits(0)))
 
-        reconstruction_new = inst_shift(peaks, inst_dict, harscale, pexp,
+        reconstruction_new = inst_shift(peaks, fixed_params, pexp,
                                         m, len(peaks))
 
-        if len(peaks) > num:
-            idcs = np.argsort(-peaks.amps)[:num]
-            peaks = peaks[idcs]
+        keep_peaks = Peaks.empty(make_inits(0))
+        for j in range(n):
+            inst_idcs, = np.where(peaks.insts == j)
+            if inst_idcs.size > nums:
+                idcs = np.argsort(-peaks.amps[inst_idcs])[:nums]
+                keep_peaks.merge(peaks[inst_idcs[idcs]])
+            else:
+                keep_peaks.merge(peaks[inst_idcs])
+        peaks = keep_peaks
 
-        bounds = make_bounds(fsigma, len(peaks))
+        bounds = make_bounds(len(peaks))
 
         res = scipy.optimize.fmin_l_bfgs_b(
             inst_shift_obj, peaks.get_array(),
-            args=(peaks.insts, inst_dict, harscale, pexp, qexp, m,
+            args=(peaks.insts, fixed_params, pexp, qexp, m,
                   len(peaks), y),
             bounds=bounds,
             fprime=inst_shift_grad,
             #factr=1e1,
             disp=0)
 
-        peaks = Peaks.from_array(res[0], peaks.insts)
-        reconstruction_new = inst_shift(peaks, inst_dict, harscale, pexp, m,
+        peaks = Peaks.from_array(res[0], peaks.insts, len(make_inits(0)))
+        reconstruction_new = inst_shift(peaks, fixed_params, pexp, m,
                                         len(peaks))
 
         if (np.linalg.norm(reconstruction_new**qexp - y**qexp)
@@ -573,7 +567,7 @@ def peak_pursuit(y, num, prenum, runs, inst_dict, fsigma, harscale,
 
     return peaks, reconstruction
 
-def gen_inst_spect(baseshift, fsigma, inst_dict, harscale, pexp, qexp, m):
+def gen_inst_spect(baseshift, fsigma, fixed_params, pexp, qexp, m, n):
     """
     Generate an instrument log-frequency spectrum.
 
@@ -583,16 +577,16 @@ def gen_inst_spect(baseshift, fsigma, inst_dict, harscale, pexp, qexp, m):
         Length to add to the spectrum in order to avoid circular convolution
     fsigma : float
         Standard deviation (frequency)
-    inst_dict : ndarray
-        Dictionary containing the relative amplitudes of the harmonics
-    harscale : float
-        Scaling factor
+    fixed_params : sequence
+        Extra fixed parameters for the synthesizer
     pexp : float
         Exponent for the addition of sinusoids
     qexp : float
         Exponent to be applied on the spectrum
     m : int
         Height of the spectrogram
+    n : int
+        Number of patterns/instruments
 
     Returns
     -------
@@ -600,11 +594,296 @@ def gen_inst_spect(baseshift, fsigma, inst_dict, harscale, pexp, qexp, m):
         Spectra of the instruments, in the columns    
     """
 
-    n = inst_dict.shape[1]
     inst_spect = np.zeros((m, n), order='F')
     for i in range(n):
-        peaks = Peaks([1], [baseshift], [fsigma], [0], [i])
-        inst_spect[:, i] = inst_shift(peaks, inst_dict, harscale,
+        peaks = Peaks([1], [baseshift], [[fsigma], [0]], [i])
+        inst_spect[:, i] = inst_shift(peaks, fixed_params,
                                       pexp, m, 1) ** qexp
 
     return inst_spect
+
+def test_pattern_gen(seed, scaling):
+    """
+    Generate the parameters for a random pattern.
+
+    Parameters
+    ----------
+    seed : int
+        Random seed
+    scaling : float
+        Scaling of the axis
+
+    Returns
+    -------
+    amps : ndarray
+        Amplitudes of the peaks
+    shifts : ndarray
+        Positions of the peaks on the axis
+    sigmas : ndarray
+        Standard deviations of the peaks
+    """
+
+    n = 5
+    np.random.seed(seed)
+    shifts = np.random.rand(2, n) * scaling
+    sigmas = np.random.rand(2, n)/20 * scaling
+    amps = np.random.rand(2, n)
+
+    return amps, shifts, sigmas
+
+def test_pattern_comp(x, amps, shifts, sigmas):
+    """
+    Evaluate a test pattern.
+
+    Parameters
+    ----------
+    x : array_like
+        Positions to evaluate the pattern
+    amps : array_like
+        Amplitudes of the peaks
+    shifts : array_like
+        Positions of the peaks on the axis
+    sigmas : array_like
+        Standard deviations of the peaks
+
+    Returns
+    -------
+    y : ndarray
+        Evaluation of the test pattern
+    """
+
+    x = np.asarray(x)
+    amps = np.asarray(amps)
+    shifts = np.asarray(shifts)
+    sigmas = np.asarray(sigmas)
+
+    n = amps.shape[1]
+    y = np.zeros((amps.shape[0], x.size))
+
+    for i in range(n):
+        y += (spect.gauss(x - shifts[:, i:i+1], sigmas[:, i:i+1], False)
+              * amps[:, i:i+1])
+
+    return y
+
+def test_pattern(peaks, fixed_params, pexp, m, n):
+    """
+    Evaluate a test pattern.
+
+    Parameters
+    ----------
+    peaks : Peaks
+        Continuous parameters for the peaks
+    fixed_params : sequence
+        Extra fixed parameters
+    pexp : float
+        (ignored)
+    m : int
+        (ignored)
+    n : int
+        (ignored)
+
+    Returns
+    -------
+    y : ndarray
+        Sampled test pattern
+    """
+
+    x, pat_amps, pat_shifts, pat_sigmas = fixed_params
+    y = np.sum(
+        test_pattern_comp(x,
+                          peaks.amps[:, np.newaxis] * pat_amps[peaks.insts, :],
+                          peaks.shifts[:, np.newaxis]
+                          + pat_shifts[peaks.insts, :],
+                          pat_sigmas[peaks.insts, :]), axis=0)
+
+    return y
+
+def test_pattern_obj(peak_array, insts, fixed_params, pexp, qexp, m, n, y):
+    """
+    Loss objective for a test pattern.
+
+    Parameters
+    ----------
+    peak_array : array_like
+        Array of all the continuous parameters
+    insts : array_like
+        Number of the instruments/patterns
+    fixed_params : sequence
+        Extra fixed parameters
+    pexp : float
+        (ignored)
+    qexp : float
+        (ignored)
+    m : int
+        (ignored)
+    n : int
+        (ignored)
+    y : array_like
+        Evaluation of the test pattern
+
+    Returns
+    -------
+    obj : float
+        Least-squares error
+    """
+
+    reconstruction = test_pattern(Peaks.from_array(peak_array, insts, 0),
+                                  fixed_params, pexp, m, n)
+    reconstruction = np.maximum(reconstruction, 0)
+
+    loss = np.sum(np.square(reconstruction - y)) / 2
+
+    print("peak_array: {}".format(peak_array))
+    print("loss: {}".format(loss))
+    return loss
+
+def test_pattern_grad_helper(x, r, amps, shifts,
+                             pat_amps, pat_shifts, pat_sigmas):
+    """
+    Helper function for the computation of the gradient of the test pattern.
+
+    Parameters
+    ----------
+    x : array_like
+        Positions where pattern was evaluated
+    r : array_like
+        Residual of the pattern
+    amps : array_like
+        Amplitudes of the patterns
+    shifts : array_like
+        Shifts of the peaks
+    pat_amps : array_like
+        Amplitudes of the peaks for each pattern
+    pat_shifts : array_like
+        Positions of the peaks on the axis for each pattern
+    pat_sigmas : array_like
+        Standard deviations of the peaks for each pattern
+
+    Returns
+    -------
+    grad : ndarray
+        Gradient for the test pattern
+    """
+
+    x = np.asarray(x)
+    r = np.asarray(r)
+    amps = np.asarray(amps)
+    shifts = np.asarray(shifts)
+    pat_amps = np.asarray(pat_amps)
+    pat_shifts = np.asarray(pat_shifts)
+    pat_sigmas = np.asarray(pat_sigmas)
+    
+    n = amps.size
+    m = pat_amps.shape[1]
+    grad = np.zeros(2*n)
+
+    for i in range(n):
+        for j in range(m):
+            grad[i] += r.dot(
+                pat_amps[i,j] * spect.gauss(x - shifts[i, np.newaxis]
+                                            - pat_shifts[i, j],
+                                            pat_sigmas[i, j], False))
+            grad[i+n] += r.dot(
+                amps[i, np.newaxis] * pat_amps[i, j]
+                * (x - shifts[i, np.newaxis] - pat_shifts[i,j])
+                / pat_sigmas[i, j]**2 * spect.gauss(x - shifts[i, np.newaxis]
+                                                   - pat_shifts[i, j],
+                                                   pat_sigmas[i, j], False))
+
+    return grad
+
+def test_pattern_grad(peak_array, insts, fixed_params, pexp, qexp,
+                      m, n, y):
+    """
+    Gradient for a test pattern.
+
+    Parameters
+    ----------
+    peak_array : array_like
+        Array of all the continuous parameters
+    insts : array_like
+        Number of the instruments/patterns
+    fixed_params : sequence
+        Extra fixed parameters
+    pexp : float
+        (ignored)
+    qexp : float
+        (ignored)
+    m : int
+        (ignored)
+    n : int
+        (ignored)
+    y : array_like
+        Evaluation of the test pattern
+
+    Returns
+    -------
+    grad : ndarray
+        Gradient for the test pattern
+    """
+
+    peak_array = np.asarray(peak_array)
+    insts = np.asarray(insts)
+    y = np.asarray(y)
+
+    x, pat_amps, pat_shifts, pat_sigmas = fixed_params
+
+    peaks = Peaks.from_array(peak_array, insts, 0)
+    reconstruction = test_pattern(peaks, fixed_params, pexp, m, n)
+    reconstruction = np.maximum(reconstruction, 0)
+    amps, shifts, params, insts = peaks.get_params()
+    expvec = reconstruction - y
+    grad = test_pattern_grad_helper(x, expvec, amps, shifts, pat_amps[insts, :],
+                                    pat_shifts[insts, :], pat_sigmas[insts, :])
+
+    return grad
+
+def test_pursuit():
+    "Testing the pursuit algorithm on a generic example."
+
+    n = 20
+    x = np.arange(n)
+    x2 = np.linspace(0, n, 1000)
+
+    make_bounds = lambda length : [(0, None)] * length + [(None, None)] * length
+    make_inits = lambda length : np.zeros([0, length])
+
+    pat_amps, pat_shifts, pat_sigmas = test_pattern_gen(3, 50 * n / 100)
+    amps = np.random.rand(2)
+    shifts = np.asarray([10.3*n/100, 40.8*n/100])
+    print(shifts)
+    baseshift = x.size
+    y = np.sum(test_pattern_comp(x, amps[:,np.newaxis]*pat_amps,
+                                 shifts[:,np.newaxis]+pat_shifts,
+                                 pat_sigmas),
+               axis=0)
+    inst_spect = np.vstack((np.zeros((baseshift, 2)),
+                            test_pattern_comp(x, pat_amps, pat_shifts,
+                                              pat_sigmas).T))
+
+    fixed_params = (x, pat_amps, pat_shifts, pat_sigmas)
+    peaks, reconstruction = peak_pursuit(
+        y, 1, 1, 4, 2, test_pattern, test_pattern_obj, test_pattern_grad,
+        make_bounds, make_inits, fixed_params,
+        fft_selector, (baseshift, inst_spect, 1), 1, 1, 0.9)
+
+    inst_spect_hd = test_pattern_comp(x2, pat_amps, pat_shifts, pat_sigmas)
+    inst_spect_hd_appl = test_pattern_comp(x2, pat_amps*amps[:, np.newaxis],
+                                           pat_shifts+shifts[:, np.newaxis],
+                                           pat_sigmas)
+
+    np.savetxt('test_pursuit_sample.dat', np.vstack((x, y)).T)
+    np.savetxt('test_pursuit_patterns.dat', np.vstack((x2, inst_spect_hd)).T)
+    np.savetxt('test_pursuit_patterns_appl.dat',
+               np.vstack((x2, inst_spect_hd_appl)).T)
+    np.savetxt('test_pursuit_real.dat',
+               np.vstack((x2, np.sum(inst_spect_hd_appl, axis=0))).T)
+    
+    print(10 * np.log10(np.sum(np.square(y))
+                        / np.sum(np.square(reconstruction - y))))
+    plt.plot(x, y, x, reconstruction)
+    plt.savefig('test_pursuit.png')
+
+if __name__ == '__main__':
+    test_pursuit()

@@ -22,6 +22,7 @@ import matplotlib.cm as cm
 from . import wav
 from . import specttool
 from ..dictsep import pursuit
+from ..dictsep import dictlearn
 
 def gauss(x, stdev, normalize=True):
     """
@@ -50,7 +51,7 @@ def gauss(x, stdev, normalize=True):
     else:
         return window
 
-def spectwrite(filename, spectrogram, color=True):
+def spectwrite(filename, spectrogram, color="viridis", db=100):
     """
     Save a spectrogram as an image.  The data is normalized to dynamic range
     of 100 dB, and a logarithmic Viridis color scale is used.
@@ -61,28 +62,33 @@ def spectwrite(filename, spectrogram, color=True):
         Name of the image file
     spectrogram : array_like
         Spectrogram
-    color : bool
+    color : string or NoneType
         Whether to make a color plot
     """
 
     spectrogram = np.asarray(spectrogram)
+    print("spect energy: {}".format(np.sum(np.square(spectrogram))))
     print("spect max: {}".format(np.amax(spectrogram)))
     spectrogram = spectrogram / np.amax(spectrogram)
 
-    logspect = np.log10((1e-5 + spectrogram) / (1e-5 + 1)) + 5
+    floor = 10**(-db/20)
+    logspect = np.log10((floor + spectrogram) / (floor + 1)) + db/20
     maxspect = np.amax(logspect)
     scalespect = logspect / maxspect
     scalespect = scalespect[::-1, :]
     scalespect = np.maximum(scalespect, 0)
     scalespect = np.minimum(scalespect, 1)
 
-    if color:
-        plotspect = cm.viridis(scalespect)
+    if not color:
+        scipy.misc.imsave(filename, 1 - scalespect)
+    elif color == "magma":
+        plotspect = cm.magma(1 - scalespect)
         scipy.misc.imsave(filename, plotspect)
     else:
-        scipy.misc.imsave(filename, 1 - scalespect)
+        plotspect = cm.viridis(scalespect)
+        scipy.misc.imsave(filename, plotspect)        
 
-def stripe(signal, spectheight, sigmas, sampdist):
+def stripe(signal, spectheight, sigmas, sampdist, eval_range):
     """
     Populate an array with time-shifted and windowed versions of an audio
     signal.  This serves as a precursor for FFT calculation.  The first
@@ -99,6 +105,8 @@ def stripe(signal, spectheight, sigmas, sampdist):
         Number of standard deviations after which to cut the window
     sampdist : int
         Time intervals to sample the spectrogram
+    eval_range : slice
+        Time range of the spectrogram to be computed
 
     Returns
     -------
@@ -108,7 +116,7 @@ def stripe(signal, spectheight, sigmas, sampdist):
 
     signal = np.asarray(signal)
 
-    pos = np.arange(0, signal.size, sampdist)
+    pos = np.arange(0, signal.size, sampdist)[eval_range]
     stripeplot = pyfftw.zeros_aligned((spectheight*2, pos.size), order='F',
                                       dtype='complex128')
 
@@ -126,7 +134,7 @@ def stripe(signal, spectheight, sigmas, sampdist):
 
     return stripeplot
 
-def stft(signal, length, sigmas, sampdist):
+def stft(signal, length, sigmas, sampdist, eval_range=slice(None, None)):
     """
     Calculate the linear-frequency spectrogram of a given audio signal
     by calling `stripe` and computing the FFT along the first axis.
@@ -141,6 +149,8 @@ def stft(signal, length, sigmas, sampdist):
         Number of standard deviations after which to cut the window
     sampdist : int
         Time intervals to sample the spectrogram
+    eval_range : slice
+        Time range of the spectrogram to be computed
 
     Returns
     -------
@@ -148,7 +158,7 @@ def stft(signal, length, sigmas, sampdist):
         Complex-valued linear-frequency spectrogram
     """
 
-    stripeplot = stripe(signal, length, sigmas, sampdist)
+    stripeplot = stripe(signal, length, sigmas, sampdist, eval_range)
     fft_object = pyfftw.builders.fft(stripeplot, axis=0, threads=8,
                                      overwrite_input=False, avoid_copy=True)
     return fft_object()
@@ -189,7 +199,8 @@ def istft(spect, siglen, sigmas, sampdist):
                                          spectheight, stripeplot.shape[1],
                                          sampdist))
 
-def spectrogram(signal, spectheight, sigmas, sampdist):
+def spectrogram(signal, spectheight, sigmas, sampdist,
+                eval_range=slice(None, None)):
     """
     Calculate the linear-frequency magnitude spectrogram via STFT.
 
@@ -203,6 +214,8 @@ def spectrogram(signal, spectheight, sigmas, sampdist):
         Number of standard deviations after which to cut the window
     sampdist : int
         Time intervals to sample the spectrogram
+    eval_range : slice
+        Time range of the spectrogram to be computed
 
     Returns
     -------
@@ -210,8 +223,7 @@ def spectrogram(signal, spectheight, sigmas, sampdist):
         Linear-frequency magnitude spectrogram
     """
 
-    stripeplot = stripe(signal, spectheight, sigmas, sampdist)
-    spect = np.abs(stft(signal, spectheight, sigmas, sampdist))
+    spect = np.abs(stft(signal, spectheight, sigmas, sampdist, eval_range))
 
     return spect
 
@@ -329,12 +341,12 @@ def winlog_spect(spect, freqs, basefreq, sigmas):
         freqdiff = freq - freqint
         stretch = freq / basefreq
         if stretch > 1 + 1e-12:
-            sigma = sigmas/np.pi * np.sqrt(np.square(stretch) - 1)
+            sigma = sigmas/np.pi * np.sqrt(np.square(stretch) - 1) / np.sqrt(2)
             width = int(np.ceil(sigma * sigmas))
             lo = max(0, width - freqint)
             hi = min(2*width, spect.shape[0] - freqint + width)
-            window = gauss(np.arange(lo-width, hi-width) - freqdiff, sigma,
-                           False)
+            window = (gauss(np.arange(lo-width, hi-width) - freqdiff, sigma)
+                      * stretch)
             logspectrow = np.sum(window.reshape(hi-lo, 1)
                                  * spect[freqint-width+lo:freqint-width+hi, :],
                                  axis=0)
@@ -344,8 +356,8 @@ def winlog_spect(spect, freqs, basefreq, sigmas):
 
     return logspect
 
-def logspect_freq(signal, spectheight, sigmas, sampdist, basefreq,
-                  minfreq, maxfreq, numfreqs):
+def logspect_mel(signal, spectheight, sigmas, sampdist, basefreq,
+                  minfreq, maxfreq, numfreqs, eval_range=slice(None, None)):
     """
     Compute the Mel-frequency spectrogram of an audio signal.
 
@@ -370,6 +382,8 @@ def logspect_freq(signal, spectheight, sigmas, sampdist, basefreq,
         (normalized to the sampling frequency)
     numfreqs : float
         Height of the log-frequency spectrogram
+    eval_range : slice
+        Time range of the spectrogram to be computed
 
     Returns
     -------
@@ -382,13 +396,14 @@ def logspect_freq(signal, spectheight, sigmas, sampdist, basefreq,
     freqs = np.logspace(np.log10(minfreq), np.log10(maxfreq), numfreqs,
                         endpoint=False)
 
-    spect = spectrogram(signal, spectheight, sigmas, sampdist)[:spectheight,:]
+    spect = (spectrogram(signal, spectheight, sigmas, sampdist, eval_range)
+             [:spectheight, :]**2)
     logspect = winlog_spect(spect, freqs, basefreq, sigmas)
         
     return logspect
 
-def logspect_tf(signal, spectheight, sigmas, sampdist, basefreq,
-                minfreq, maxfreq, numfreqs):
+def logspect_cq(signal, spectheight, sigmas, sampdist, basefreq,
+                minfreq, maxfreq, numfreqs, smooth=True):
     """
     Compute the time-smoothed CQT of an audio signal.
 
@@ -424,14 +439,13 @@ def logspect_tf(signal, spectheight, sigmas, sampdist, basefreq,
 
     freqs = np.logspace(np.log10(minfreq), np.log10(maxfreq), numfreqs,
                         endpoint=False)
-    pos = np.arange(0, signal.size)
     samppos = np.arange(0, signal.size, sampdist)
     spect = np.zeros((numfreqs, samppos.size))
 
     with tf.Graph().as_default():
-        win_var = tf.placeholder(tf.float32, [None, 2])
-        smooth_var = tf.placeholder(tf.float32, [None])
-        row_var = tf.nn.conv2d(tf.reshape(tf.to_float(signal), [1, 1, -1, 1]),
+        win_var = tf.placeholder(tf.float64, [None, 2])
+        smooth_var = tf.placeholder(tf.float64, [None])
+        row_var = tf.nn.conv2d(tf.reshape(tf.to_double(signal), [1, 1, -1, 1]),
                                tf.reshape(win_var, [1, -1, 1, 2]),
                                [1, 1, 1, 1], 'SAME')
         y_var = tf.nn.conv2d(tf.sqrt(tf.square(row_var[:,:,:,0:1])
@@ -451,10 +465,10 @@ def logspect_tf(signal, spectheight, sigmas, sampdist, basefreq,
         phase = np.exp(-1j*2*np.pi * freq * np.arange(-sigmalen, sigmalen+1))
         window = window * phase
 
-        if stretch >= 1 - 1e-6:
+        if stretch >= 1 - 1e-6 or not smooth:
             convwindow = [1]
         else:
-            sigmaadd = spectheight * np.sqrt(1 - np.square(stretch))
+            sigmaadd = spectheight * np.sqrt(1 - np.square(stretch)) #/ np.sqrt(2)
             sigmaaddlen = int(np.ceil(sigmaadd))
             convwindow = gauss(np.arange(-sigmaaddlen, sigmaaddlen+1),
                                sigmaadd / sigmas)
@@ -468,7 +482,8 @@ def logspect_tf(signal, spectheight, sigmas, sampdist, basefreq,
     return spect
 
 def logspect_pursuit(signal, spectheight, sigmas, sampdist, basefreq,
-                     minfreq, maxfreq, numfreqs, fsigma):
+                     minfreq, maxfreq, numfreqs, fsigma,
+                     eval_range=slice(None, None)):
     """
     Compute the log-frequency frequency via sparse pursuit.
 
@@ -495,6 +510,8 @@ def logspect_pursuit(signal, spectheight, sigmas, sampdist, basefreq,
         Height of the log-frequency spectrogram
     fsigma : float
         Standard deviation (frequency)
+    eval_range : slice
+        Time range of the spectrogram to be computed
 
     Returns
     -------
@@ -507,14 +524,14 @@ def logspect_pursuit(signal, spectheight, sigmas, sampdist, basefreq,
     minfreq = minfreq * (2 * spectheight)
     maxfreq = maxfreq * (2 * spectheight)
 
-    spect = spectrogram(signal, spectheight, sigmas, sampdist)[:spectheight, :]
+    spect = (spectrogram(signal, spectheight, sigmas, sampdist)
+             [:spectheight, eval_range])
     logspect = np.zeros((numfreqs, spect.shape[1]))
     linspect = np.zeros(spect.shape)
 
     print("timeslots: {}".format(spect.shape[1]))
     
     inst_dict = np.asarray([[1.]])
-    harshifts = np.asarray([0.])
 
     init = None
 
@@ -527,12 +544,20 @@ def logspect_pursuit(signal, spectheight, sigmas, sampdist, basefreq,
 
     pexp = 1
     qexp = 1
+
+    make_bounds, make_inits = dictlearn.make_closures(fsigma)
+    # setting harscale = 0 is a hack to make the gradient w.r.t. spread zero
+    fixed_params = (inst_dict, 0)
     
     for i in range(spect.shape[1]):
         print("Timeslot {}".format(i))
         y = spect[:,i]
-        peaks, reconstruction = pursuit.peak_pursuit(y, 1000, 1000, 20, inst_dict,
-                                                     fsigma, harshifts,
+        peaks, reconstruction = pursuit.peak_pursuit(y, 1000, 1000, 20, 1,
+                                                     pursuit.inst_shift,
+                                                     pursuit.inst_shift_obj,
+                                                     pursuit.inst_shift_grad,
+                                                     make_bounds, make_inits,
+                                                     fixed_params,
                                                      pursuit.max_selector,
                                                      (5,), pexp, qexp)
         logshifts = np.ones(len(peaks)) * (-np.inf)
@@ -540,32 +565,113 @@ def logspect_pursuit(signal, spectheight, sigmas, sampdist, basefreq,
         logshifts[idcs] = (numfreqs / np.log(maxfreq / minfreq)
                            * np.log(peaks.shifts[idcs] / minfreq))
         peaks.shifts = logshifts
-        peaks.sigmas = peaks.sigmas * stretch
-        logspect[:, i] = pursuit.inst_shift(peaks, inst_dict, harshifts, pexp,
+        peaks.params[0, :] = peaks.params[0, :] * stretch
+        logspect[:, i] = pursuit.inst_shift(peaks, fixed_params, pexp,
                                             numfreqs, len(peaks))
         linspect[:, i] = reconstruction
 
     return logspect, linspect
 
-if __name__ == '__main__':
+def example_delta_octaves():
+    """
+    Comparison of the different representations with a delta transient and
+    sinusoids.
+    """
+
     n = 200000
     signal = np.zeros(n)
-    signal[100000] = 2000
     signal += (np.sin(2*np.pi * 1000/48000 * np.arange(0, n)) +
                np.sin(2*np.pi * 2000/48000 * np.arange(0, n)) +
                np.sin(2*np.pi * 4000/48000 * np.arange(0, n)) +
                np.sin(2*np.pi * 8000/48000 * np.arange(0, n)) +
                np.sin(2*np.pi * 16000/48000 * np.arange(0, n)))
+    signal[100000] = 2*np.sqrt(2*np.pi)/6*1024
 
     spectheight = 1024*6
 
     spect = spectrogram(signal, spectheight, 6, 128)
-    spectwrite('spect_lin.png', spect)
+    spectwrite('delta+octaves_lin.png', spect[:spectheight, :])
 
-    spect = logspect_freq(signal, spectheight, 6, 128, 640/48000,
+    spect = logspect_mel(signal, spectheight, 6, 128, 640/48000,
                           640/48000, 20480/48000, 1024)
-    spectwrite('spect_freq.png', spect)
+    spectwrite('delta+octaves_mel.png', np.sqrt(spect))
 
-    spect = logspect_tf(signal, spectheight, 6, 128, 640/48000,
+    spect = logspect_cq(signal, spectheight, 6, 128, 640/48000,
+                        640/48000, 20480/48000, 1024, False)
+    spectwrite('delta+octave_cq.png', spect)
+
+    spect = logspect_cq(signal, spectheight, 6, 128, 640/48000,
                         640/48000, 20480/48000, 1024)
-    spectwrite('spect_tf.png', spect)
+    spectwrite('delta+octave_cq_smooth.png', spect)
+
+def example_delta_scale():
+    """
+    Display of the properties of the smoothed CQT with a delta transient and a
+    chromatic scale of sinusoids.
+    """
+
+    n = 160000
+    timedist = 10000
+    signal = np.zeros(n)
+
+    for i in range(13):
+        tone = np.sin(2*np.pi*np.arange(timedist)*880*2**(i/12)/48000)
+        tone[:1000] *= np.hanning(2000)[:1000]
+        tone[9000:] *= np.hanning(2000)[1000:]
+        signal[timedist*(i+2):timedist*(i+3)] = tone
+
+    signal[10000] = 2*np.sqrt(2*np.pi)/6*1024
+
+    spect = logspect_cq(signal, 1024*6, 6, 128, 640/48000,
+                        640/48000, 2560/48000, 900)
+    spectwrite('delta+scale_cq_smooth.png', spect, None, db=40)
+
+def example_brahms():
+    """
+    Application of different transforms on a recording of the 1st violin sonata
+    of Johannes Brahms.
+    """
+
+    signal = wav.read('input/brahms1.wav')[0][44100:44100*11]
+    spectheight = 1024*6
+    spect = logspect_pursuit(signal, spectheight, 6, 256, None,
+                             20/48000, 20480/48000, 1024, 6/np.pi)[0]
+    spectwrite('brahms_pursuit.png', spect, None)
+
+    basefreq = 1024/np.log(1024)/(12*1024)
+    
+    spect = logspect_mel(signal, spectheight, 6, 256, basefreq,
+                         basefreq, 20480/48000, 527)
+    spectwrite('brahms_mel.png', np.sqrt(spect), None)
+
+    spect = logspect_cq(signal, spectheight, 6, 256, basefreq,
+                        20/48000, 20480/48000, 1024, False)
+    spectwrite('brahms_cq.png', spect, None)
+
+def example_mozart():
+    """
+    Application of the sparse pursuit method on the individual instrument
+    tracks of the piece by Mozart.
+    """
+
+    spectheight = 1024*6
+    basefreq = 1024/np.log(1024)/(12*1024)
+    for (fi,fm,fs) in [('input/mozart/recorder.wav', 'recorder_mel.png',
+                        'recorder_sparse.png'),
+                       ('input/mozart/violin.wav', 'violin_mel.png',
+                        'violin_sparse.png')]:
+        signal = wav.read(fi)[0]
+        spect = logspect_mel(signal, spectheight, 6, 256, basefreq,
+                             basefreq, 20480/48000, 527,
+                             eval_range=slice(0, 1580))
+        spectwrite(fm, spect, None)
+        spect = logspect_pursuit(signal, spectheight, 6, 256, None,
+                                 20/48000, 20480/48000, 1024, 6/np.pi,
+                                 eval_range=slice(0, 1580))[0]
+        spectwrite(fs, spect, None)
+
+if __name__ == '__main__':
+    example_delta_octaves()
+    example_delta_scale()
+    example_brahms()
+    example_mozart()
