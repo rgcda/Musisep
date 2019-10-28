@@ -103,14 +103,14 @@ def measures(synth_signals, orig_signals, size=1048576):
     perms = []
     measures = []
 
-    sig_sar = 10 * np.log10(proj_sum / artifacts)
+    sig_sar = 10 * np.log10(proj_sum / (artifacts + 1e-40))
     for p in it.permutations(range(n)):
         idcs0 = np.asarray(p)
         idcs1 = np.arange(n)
         sig_sdr = 10 * np.log10(target_sum[idcs0, idcs1]
-                                / distortion[idcs0, idcs1])
+                                / (distortion[idcs0, idcs1] + 1e-40))
         sig_sir = 10 * np.log10(target_sum[idcs0, idcs1]
-                                / interference[idcs0, idcs1])
+                                / (interference[idcs0, idcs1] + 1e-40))
         perms.append(idcs0)
         measures.append(np.vstack((sig_sdr, sig_sir, sig_sar)))
 

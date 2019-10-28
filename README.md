@@ -9,18 +9,18 @@ are documented in:
   2018.  <https://arxiv.org/abs/1806.00273>.
 
 Please cite this paper if you use the software in any academic
-context.  Further description is available on the [website of the AG
-Computational Data
-Analysis](http://www.math.uni-bremen.de/cda/software.html#Musisep) of
-the University of Bremen.  There is also the [precompiled API
-documentation](http://www.math.uni-bremen.de/cda/software/Musisep-API).
+context.  Further description is available on the [website of the
+mathematics department of Colorado State
+University](https://www.math.colostate.edu/~king/software.html#Musisep).
+There is also the [precompiled API
+documentation](https://www.math.colostate.edu/~king/software/Musisep-API/).
 
 ## System Requirements
 
 The code is written for Python 3.5; it will *not* work with any
-earlier version of Python.  It was tested with NumPy 1.14.3,
+earlier version of Python.  It was tested with NumPy 1.16.1,
 SciPy 0.18.1, Cython 0.25.2, PyFFTW 0.10.4, Matplotlib 2.0.0, and
-Tensorflow 1.8.0.  The latter is only necessary for the narrowband
+Tensorflow 1.12.0.  The latter is only necessary for the narrowband
 method, which is not used in the test example, so its import may be
 commented out.  CUDA support is recommended but not required.
 
@@ -51,7 +51,7 @@ python3 -m musisep.dictsep
 
 ## License
 
-Copyright (C) 2018 Sören Schulze
+Copyright (C) 2018-2019 Sören Schulze
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by

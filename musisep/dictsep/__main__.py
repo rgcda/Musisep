@@ -23,7 +23,8 @@ from . import dictlearn
 
 def main(mixed_soundfile, orig_soundfiles, out_name, inst_num, tone_num,
          pexp, qexp, har, sigmas, sampdist, spectheight, logspectheight,
-         minfreq, maxfreq, runs, lifetime, num_dicts, mask, color, plot_range):
+         minfreq, maxfreq, runs, lifetime, num_dicts, mask, color, plot_range,
+         spect_method):
     """
     Wrapper function for the dictionary learning algorithm.
 
@@ -68,14 +69,16 @@ def main(mixed_soundfile, orig_soundfiles, out_name, inst_num, tone_num,
     color : bool or string
         Whether color should be used, or specification of the color scheme
     plot_range : slice or NoneType
-        part of the spectrogram to plot
+        Part of the spectrogram to plot
+    spect_method : string
+        If set to `"mel"`, a mel spectrogram is used for separation.
+        Otherwise, the log-frequency spectrogram is generated via
+        sparse pursuit.
     """
 
     signal, samprate = wav.read(mixed_soundfile)
 
     plotlen = signal.size
-
-    #matplotlib.rcParams['agg.path.chunksize'] = 10000
 
     orig_spectrum = spect.spectrogram(
         signal, spectheight, sigmas, sampdist)[:spectheight, :]
@@ -96,17 +99,36 @@ def main(mixed_soundfile, orig_soundfiles, out_name, inst_num, tone_num,
     fsigma = sigmas/np.pi
 
     if (os.path.exists('output/{}-lin.npy'.format(out_name))
-        and os.path.exists('output/{}-log.npy'.format(out_name))):
+        and os.path.exists('output/{}-log.npy'.format(out_name))
+        and os.path.exists('output/{}-stretch.npy'.format(out_name))):
         linspect = np.load('output/{}-lin.npy'.format(out_name))
         logspect = np.load('output/{}-log.npy'.format(out_name))
+        stretch = np.load('output/{}-stretch.npy'.format(out_name))
+    elif spect_method == "mel":
+        stretch = (logspectheight / np.log(maxfreq/minfreq)
+                   / (minfreq / samprate * 2 * spectheight))
+        print("stretch: {}".format(stretch))
+        logspect, linspect = spect.logspect_mel(signal, spectheight,
+                                                sigmas, sampdist,
+                                                minfreq/samprate,
+                                                minfreq/samprate,
+                                                maxfreq/samprate,
+                                                logspectheight)
+        logspect = np.sqrt(logspect)
+        linspect = np.sqrt(linspect)
+        np.save('output/{}-lin.npy'.format(out_name), linspect)
+        np.save('output/{}-log.npy'.format(out_name), logspect)
+        np.save('output/{}-stretch.npy'.format(out_name), stretch)
     else:
         logspect, linspect = spect.logspect_pursuit(signal, spectheight,
                                                     sigmas, sampdist, None,
                                                     minfreq/samprate,
                                                     maxfreq/samprate,
                                                     logspectheight, fsigma)
+        stretch = 1
         np.save('output/{}-lin.npy'.format(out_name), linspect)
         np.save('output/{}-log.npy'.format(out_name), logspect)
+        np.save('output/{}-stretch.npy'.format(out_name), stretch)
 
     if plot_range is not None:
         spect.spectwrite('output/{}-lin.png'.format(out_name),
@@ -125,8 +147,8 @@ def main(mixed_soundfile, orig_soundfiles, out_name, inst_num, tone_num,
             inst_dict = np.load('output/{}-dict.npy'.format(out_name_run))
         else:
             inst_dict = dictlearn.learn_spect_dict(
-                logspect, fsigma, tone_num, inst_num*2, pexp, qexp,
-                har, logspectheight, minfreq, maxfreq, runs, lifetime)
+                logspect, fsigma*stretch, tone_num, inst_num * 2, pexp, qexp,
+                har, minfreq, maxfreq, runs, lifetime)
             np.save('output/{}-dict.npy'.format(out_name_run), inst_dict)
 
         print(inst_dict)
@@ -140,9 +162,9 @@ def main(mixed_soundfile, orig_soundfiles, out_name, inst_num, tone_num,
             (dict_spectrum, inst_spectrums,
              dict_spectrum_lin, inst_spectrums_lin) = \
                 dictlearn.synth_spect(
-                    logspect, tone_num, inst_dict, fsigma,
+                    logspect, tone_num, inst_dict, fsigma*stretch,
                     spectheight, pexp, qexp,
-                    minfreq/samprate, maxfreq/samprate)
+                    minfreq/samprate, maxfreq/samprate, stretch)
             pickle.dump([dict_spectrum, inst_spectrums,
                          dict_spectrum_lin, inst_spectrums_lin],
                         open('output/{}-spect.pkl'.format(out_name_run), 'wb'))
@@ -156,16 +178,16 @@ def main(mixed_soundfile, orig_soundfiles, out_name, inst_num, tone_num,
             mask_str = "nomask"
 
         if plot_range is not None:
-            spect.spectwrite('output/{}-synth-{}.png'
-                             .format(out_name_run, mask_str),
+            spect.spectwrite('output/{}-synth.png'
+                             .format(out_name_run),
                              dict_spectrum[:, plot_range], color)
             spect.spectwrite('output/{}-synth-lin-{}.png'
                              .format(out_name_run, mask_str),
                              dict_spectrum_lin[:, plot_range], color)
             for i in range(len(inst_spectrums)):
                 spect.spectwrite(
-                    'output/{}-synth{}-{}.png'
-                    .format(out_name_run, i, mask_str),
+                    'output/{}-synth{}.png'
+                    .format(out_name_run, i),
                     inst_spectrums[i][:, plot_range], color)
                 spect.spectwrite(
                     'output/{}-synth{}-lin-{}.png'
@@ -211,7 +233,8 @@ def separate_two(mixed_soundfile, orig_soundfiles, out_name, inst_num=2,
                  tone_num=1, pexp=1, qexp=0.5, har=25, sigmas=6, sampdist=256,
                  spectheight=6*1024, logspectheight=1024, minfreq=20,
                  maxfreq=20480, runs=10000, lifetime=500, num_dicts=10,
-                 mask=True, color=False, plot_range=None):
+                 mask=True, color=False, plot_range=None,
+                 spect_method="pursuit"):
     """
     Separation of a sample with two instruments with sensible default
     parameters.
@@ -258,11 +281,16 @@ def separate_two(mixed_soundfile, orig_soundfiles, out_name, inst_num=2,
         Whether color should be used, or specification of the color scheme
     plot_range : slice or NoneType
         part of the spectrogram to plot
+    spect_method : string
+        If set to `"mel"`, a mel spectrogram is used for separation.
+        Otherwise, the log-frequency spectrogram is generated via
+        sparse pursuit.
     """
 
     main(mixed_soundfile, orig_soundfiles, out_name, inst_num, tone_num,
          pexp, qexp, har, sigmas, sampdist, spectheight, logspectheight,
-         minfreq, maxfreq, runs, lifetime, num_dicts, mask, color, plot_range)
+         minfreq, maxfreq, runs, lifetime, num_dicts, mask, color, plot_range,
+         spect_method)
 
 def separate_mozart_recorder_violin():
     "Separation of recorder and violin on the piece by Mozart"
@@ -272,15 +300,37 @@ def separate_mozart_recorder_violin():
                                   'input/mozart/violin.wav'],
                  out_name='mozart/mozart',
                  runs=100000,
-                 mask=False,
+                 mask=True,
                  plot_range=slice(0, 1580))
     separate_two(mixed_soundfile='input/mozart/mix.wav',
                  orig_soundfiles=['input/mozart/recorder.wav',
                                   'input/mozart/violin.wav'],
                  out_name='mozart/mozart',
                  runs=100000,
-                 mask=True,
+                 mask=False,
                  plot_range=slice(0, 1580))
+
+def separate_mozart_recorder_violin_mel():
+    "Separation of recorder and violin on the piece by Mozart"
+
+    separate_two(mixed_soundfile='input/mozart/mix.wav',
+                 orig_soundfiles=['input/mozart/recorder.wav',
+                                  'input/mozart/violin.wav'],
+                 out_name='mozart_mel/mozart',
+                 minfreq=200,
+                 runs=100000,
+                 mask=True,
+                 plot_range=slice(0, 1580),
+                 spect_method="mel")
+    separate_two(mixed_soundfile='input/mozart/mix.wav',
+                 orig_soundfiles=['input/mozart/recorder.wav',
+                                  'input/mozart/violin.wav'],
+                 out_name='mozart_mel/mozart',
+                 minfreq=200,
+                 runs=100000,
+                 mask=False,
+                 plot_range=slice(0, 1580),
+                 spect_method="mel")
 
 def separate_mozart_clarinet_piano():
     "Separation of clarinet and piano on the piece by Mozart"
@@ -288,7 +338,7 @@ def separate_mozart_clarinet_piano():
     separate_two(mixed_soundfile='input/mozart-cl/mix-cl-piano.wav',
                  orig_soundfiles=['input/mozart-cl/clarinet-high.wav',
                                   'input/mozart-cl/piano-low.wav'],
-                 out_name='mozart-cl-p1-lin/mozart')
+                 out_name='mozart-cl/mozart')
 
 def separate_jaiswal(number):
     """
@@ -307,6 +357,7 @@ def separate_jaiswal(number):
 
 if __name__ == '__main__':
     separate_mozart_recorder_violin()
+    separate_mozart_recorder_violin_mel()
     separate_mozart_clarinet_piano()
 
     # The number of the sample is given via command line.

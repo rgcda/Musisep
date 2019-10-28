@@ -90,8 +90,8 @@ def read_stereo(filename):
 
 def write(filename, signal, samprate):
     """
-    Write WAV audio data to a file.  The data type must be supported by
-    scipy.io.wavfile.
+    Normalize WAV audio data and write it to a file.  The data type should be
+    floating-point and must be supported by scipy.io.wavfile.
 
     Parameters
     ----------
@@ -110,7 +110,7 @@ def write(filename, signal, samprate):
 
     maxval = np.amax(np.abs(signal))
     print("maxval for {}: {}".format(filename, maxval))
-    signal = signal / maxval
+    signal = signal / (maxval + 1e-40)
     wav.write(filename, samprate, signal)
 
     return maxval

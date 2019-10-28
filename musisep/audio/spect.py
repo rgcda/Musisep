@@ -26,7 +26,7 @@ from ..dictsep import dictlearn
 
 def gauss(x, stdev, normalize=True):
     """
-    Generate an l1-normalized Gaussian window/kernel with mean 0.
+    Generate a Gaussian window/kernel with mean 0.
 
     Parameters
     ----------
@@ -357,7 +357,7 @@ def winlog_spect(spect, freqs, basefreq, sigmas):
     return logspect
 
 def logspect_mel(signal, spectheight, sigmas, sampdist, basefreq,
-                  minfreq, maxfreq, numfreqs, eval_range=slice(None, None)):
+                 minfreq, maxfreq, numfreqs, eval_range=slice(None, None)):
     """
     Compute the Mel-frequency spectrogram of an audio signal.
 
@@ -389,6 +389,8 @@ def logspect_mel(signal, spectheight, sigmas, sampdist, basefreq,
     -------
     logspect : ndarray
         Log-frequency magnitude spectrogram
+    spect : ndarray
+        Linear-frequency magnitude spectrogram
     """
 
     signal = np.asarray(signal)
@@ -400,7 +402,7 @@ def logspect_mel(signal, spectheight, sigmas, sampdist, basefreq,
              [:spectheight, :]**2)
     logspect = winlog_spect(spect, freqs, basefreq, sigmas)
         
-    return logspect
+    return logspect, spect
 
 def logspect_cq(signal, spectheight, sigmas, sampdist, basefreq,
                 minfreq, maxfreq, numfreqs, smooth=True):
@@ -566,8 +568,7 @@ def logspect_pursuit(signal, spectheight, sigmas, sampdist, basefreq,
                            * np.log(peaks.shifts[idcs] / minfreq))
         peaks.shifts = logshifts
         peaks.params[0, :] = peaks.params[0, :] * stretch
-        logspect[:, i] = pursuit.inst_shift(peaks, fixed_params, pexp,
-                                            numfreqs, len(peaks))
+        logspect[:, i] = pursuit.inst_shift(peaks, fixed_params, pexp, numfreqs)
         linspect[:, i] = reconstruction
 
     return logspect, linspect
@@ -593,7 +594,7 @@ def example_delta_octaves():
     spectwrite('delta+octaves_lin.png', spect[:spectheight, :])
 
     spect = logspect_mel(signal, spectheight, 6, 128, 640/48000,
-                          640/48000, 20480/48000, 1024)
+                          640/48000, 20480/48000, 1024)[0]
     spectwrite('delta+octaves_mel.png', np.sqrt(spect))
 
     spect = logspect_cq(signal, spectheight, 6, 128, 640/48000,
@@ -641,7 +642,7 @@ def example_brahms():
     basefreq = 1024/np.log(1024)/(12*1024)
     
     spect = logspect_mel(signal, spectheight, 6, 256, basefreq,
-                         basefreq, 20480/48000, 527)
+                         basefreq, 20480/48000, 527)[0]
     spectwrite('brahms_mel.png', np.sqrt(spect), None)
 
     spect = logspect_cq(signal, spectheight, 6, 256, basefreq,
@@ -659,12 +660,21 @@ def example_mozart():
     for (fi,fm,fs) in [('input/mozart/recorder.wav', 'recorder_mel.png',
                         'recorder_sparse.png'),
                        ('input/mozart/violin.wav', 'violin_mel.png',
-                        'violin_sparse.png')]:
+                        'violin_sparse.png'),
+                       ('output/mozart/mozart-7-synth0-mask.wav',
+                        'recorder_post_mel.png',
+                        'recorder_post_sparse.png'),
+                       ('output/mozart/mozart-7-synth1-mask.wav',
+                        'violin_post_mel.png',
+                        'violin_post_sparse.png'),
+                       ('output/mozart/mozart-7-synth-mask.wav',
+                        'mix_post_mel.png',
+                        'mix_post_sparse.png')]:
         signal = wav.read(fi)[0]
         spect = logspect_mel(signal, spectheight, 6, 256, basefreq,
                              basefreq, 20480/48000, 527,
-                             eval_range=slice(0, 1580))
-        spectwrite(fm, spect, None)
+                             eval_range=slice(0, 1580))[0]
+        spectwrite(fm, np.sqrt(spect), None)
         spect = logspect_pursuit(signal, spectheight, 6, 256, None,
                                  20/48000, 20480/48000, 1024, 6/np.pi,
                                  eval_range=slice(0, 1580))[0]

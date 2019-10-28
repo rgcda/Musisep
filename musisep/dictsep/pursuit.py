@@ -165,7 +165,7 @@ class Peaks:
         self.params = np.concatenate((self.params, new.params), axis=1)
         self.insts = np.concatenate((self.insts, new.insts))
 
-def inst_shift(peaks, fixed_params, pexp, m, n):
+def inst_shift(peaks, fixed_params, pexp, m):
     """
     Synthesize the log-frequency spectrum.
 
@@ -179,8 +179,6 @@ def inst_shift(peaks, fixed_params, pexp, m, n):
         Exponent for the addition of sinusoids
     m : int
         Height of the spectrogram
-    n : int
-        Number of instruments
 
     Returns
     -------
@@ -193,10 +191,12 @@ def inst_shift(peaks, fixed_params, pexp, m, n):
     amps, shifts, params, insts = peaks.get_params()
     sigmas, spreads = params
     reconstruction = exptool.inst_shift(amps, shifts, sigmas, spreads, insts,
-                                        inst_dict, harscale, pexp, m, n) 
+                                        inst_dict, harscale, pexp, m)
+    reconstruction = np.maximum(0, reconstruction)
+
     return np.asarray(reconstruction) ** (1/pexp)
 
-def inst_scale(peaks, inst_dict, pexp, m, n):
+def inst_scale(peaks, inst_dict, pexp, m):
     """
     Synthesize the linear-frequency spectrum.
 
@@ -210,8 +210,6 @@ def inst_scale(peaks, inst_dict, pexp, m, n):
         Exponent for the addition of sinusoids
     m : int
         Height of the spectrogram
-    n : int
-        Number of instruments
 
     Returns
     -------
@@ -222,11 +220,13 @@ def inst_scale(peaks, inst_dict, pexp, m, n):
     amps, shifts, params, insts = peaks.get_params()
     sigmas, spreads = params
     reconstruction = exptool.inst_scale(amps, shifts, sigmas, spreads, insts,
-                                        inst_dict, pexp, m, n) 
+                                        inst_dict, pexp, m)
+    reconstruction = np.maximum(0, reconstruction)
+
     return np.asarray(reconstruction) ** (1/pexp)
 
 def inst_shift_obj(peak_array, insts, fixed_params, pexp, qexp,
-                   m, n, y):
+                   m, y):
     """
     Least-squares objective function for the log-frequency spectrum.
 
@@ -244,8 +244,6 @@ def inst_shift_obj(peak_array, insts, fixed_params, pexp, qexp,
         Exponent to be applied on the spectrum
     m : int
         Height of the spectrogram
-    n : int
-        Number of instruments
     y : array_like
         Spectrum to compare with
 
@@ -258,13 +256,11 @@ def inst_shift_obj(peak_array, insts, fixed_params, pexp, qexp,
     y = np.asarray(y)
 
     reconstruction = inst_shift(Peaks.from_array(peak_array, insts, 2),
-                                fixed_params, pexp, m, n)
-    reconstruction = np.maximum(reconstruction, 0)
+                                fixed_params, pexp, m)
     
     return np.sum(np.square(reconstruction**qexp - y**qexp)) / 2
 
-def inst_shift_grad(peak_array, insts, fixed_params, pexp, qexp,
-                    m, n, y):
+def inst_shift_grad(peak_array, insts, fixed_params, pexp, qexp, m, y):
     """
     Least-squares gradient function for the log-frequency spectrum
     w.r.t. the parameters.
@@ -283,8 +279,6 @@ def inst_shift_grad(peak_array, insts, fixed_params, pexp, qexp,
         Exponent to be applied on the spectrum
     m : int
         Height of the spectrogram
-    n : int
-        Number of instruments
     y : array_like
         Spectrum to compare with
 
@@ -297,20 +291,18 @@ def inst_shift_grad(peak_array, insts, fixed_params, pexp, qexp,
     inst_dict, harscale = fixed_params
 
     peaks = Peaks.from_array(peak_array, insts, 2)
-    reconstruction = inst_shift(peaks, fixed_params, pexp, m, n)
-    reconstruction = np.maximum(reconstruction, 0)
+    reconstruction = inst_shift(peaks, fixed_params, pexp, m)
     amps, shifts, params, insts = peaks.get_params()
     sigmas, spreads = params
     expvec = ((reconstruction**qexp - y**qexp)
               * (reconstruction+1e-40) ** (qexp - pexp) * qexp)
     grad = exptool.inst_shift_grad(expvec, amps, shifts, sigmas, spreads, insts,
-                                   inst_dict, harscale, pexp-1, m, n)
+                                   inst_dict, harscale, pexp-1, m)
     grad = np.asarray(grad)
 
     return grad
 
-def inst_shift_dict_grad(peak_array, insts, fixed_params, pexp, qexp,
-                         m, n, y):
+def inst_shift_dict_grad(peak_array, insts, fixed_params, pexp, qexp, m, y):
     """
     Least-squares gradient function for the log-frequency spectrum
     w.r.t. the dictionary.
@@ -329,8 +321,6 @@ def inst_shift_dict_grad(peak_array, insts, fixed_params, pexp, qexp,
         Exponent to be applied on the spectrum
     m : int
         Height of the spectrogram
-    n : int
-        Number of instruments
     y : array_like
         Spectrum to compare with
 
@@ -344,13 +334,14 @@ def inst_shift_dict_grad(peak_array, insts, fixed_params, pexp, qexp,
 
     y = np.asarray(y)
     peaks = Peaks.from_array(peak_array, insts, 2)
-    reconstruction = inst_shift(peaks, fixed_params, pexp, m, n)
+    m = y.size
+    reconstruction = inst_shift(peaks, fixed_params, pexp, m)
     amps, shifts, params, insts = peaks.get_params()
     sigmas, spreads = params
     expvec = ((reconstruction**qexp - y**qexp)
               * (reconstruction+1e-40) ** (qexp - pexp) * qexp)
     grad = exptool.inst_shift_dict_grad(expvec, amps, shifts, sigmas, spreads,
-                                        insts, inst_dict, harscale, pexp-1, m, n)
+                                        insts, inst_dict, harscale, pexp-1, m)
     grad = np.asarray(grad)
 
     return grad
@@ -498,7 +489,7 @@ def peak_pursuit(y, nums, prenum, runs, n, inst_shift, inst_shift_obj,
     else:
         peaks = init
 
-    reconstruction = inst_shift(peaks, fixed_params, pexp, m, len(peaks))
+    reconstruction = inst_shift(peaks, fixed_params, pexp, m)
 
     r = y**qexp - reconstruction**qexp
 
@@ -519,8 +510,7 @@ def peak_pursuit(y, nums, prenum, runs, n, inst_shift, inst_shift_obj,
 
         res = scipy.optimize.fmin_l_bfgs_b(
             inst_shift_obj, peaks.get_array(),
-            args=(peaks.insts, fixed_params, pexp, qexp, m,
-                  len(peaks), y),
+            args=(peaks.insts, fixed_params, pexp, qexp, m, y),
             bounds=bounds,
             fprime=inst_shift_grad,
             #factr=1e3,
@@ -528,8 +518,7 @@ def peak_pursuit(y, nums, prenum, runs, n, inst_shift, inst_shift_obj,
 
         peaks = Peaks.from_array(res[0], peaks.insts, len(make_inits(0)))
 
-        reconstruction_new = inst_shift(peaks, fixed_params, pexp,
-                                        m, len(peaks))
+        reconstruction_new = inst_shift(peaks, fixed_params, pexp, m)
 
         keep_peaks = Peaks.empty(make_inits(0))
         for j in range(n):
@@ -545,16 +534,14 @@ def peak_pursuit(y, nums, prenum, runs, n, inst_shift, inst_shift_obj,
 
         res = scipy.optimize.fmin_l_bfgs_b(
             inst_shift_obj, peaks.get_array(),
-            args=(peaks.insts, fixed_params, pexp, qexp, m,
-                  len(peaks), y),
+            args=(peaks.insts, fixed_params, pexp, qexp, m, y),
             bounds=bounds,
             fprime=inst_shift_grad,
             #factr=1e1,
             disp=0)
 
         peaks = Peaks.from_array(res[0], peaks.insts, len(make_inits(0)))
-        reconstruction_new = inst_shift(peaks, fixed_params, pexp, m,
-                                        len(peaks))
+        reconstruction_new = inst_shift(peaks, fixed_params, pexp, m)
 
         if (np.linalg.norm(reconstruction_new**qexp - y**qexp)
             < np.linalg.norm(reconstruction**qexp - y**qexp) * beta):
@@ -598,7 +585,7 @@ def gen_inst_spect(baseshift, fsigma, fixed_params, pexp, qexp, m, n):
     for i in range(n):
         peaks = Peaks([1], [baseshift], [[fsigma], [0]], [i])
         inst_spect[:, i] = inst_shift(peaks, fixed_params,
-                                      pexp, m, 1) ** qexp
+                                      pexp, m) ** qexp
 
     return inst_spect
 
@@ -666,7 +653,7 @@ def test_pattern_comp(x, amps, shifts, sigmas):
 
     return y
 
-def test_pattern(peaks, fixed_params, pexp, m, n):
+def test_pattern(peaks, fixed_params, pexp, m):
     """
     Evaluate a test pattern.
 
@@ -679,8 +666,6 @@ def test_pattern(peaks, fixed_params, pexp, m, n):
     pexp : float
         (ignored)
     m : int
-        (ignored)
-    n : int
         (ignored)
 
     Returns
@@ -699,7 +684,7 @@ def test_pattern(peaks, fixed_params, pexp, m, n):
 
     return y
 
-def test_pattern_obj(peak_array, insts, fixed_params, pexp, qexp, m, n, y):
+def test_pattern_obj(peak_array, insts, fixed_params, pexp, qexp, m, y):
     """
     Loss objective for a test pattern.
 
@@ -717,8 +702,6 @@ def test_pattern_obj(peak_array, insts, fixed_params, pexp, qexp, m, n, y):
         (ignored)
     m : int
         (ignored)
-    n : int
-        (ignored)
     y : array_like
         Evaluation of the test pattern
 
@@ -729,8 +712,7 @@ def test_pattern_obj(peak_array, insts, fixed_params, pexp, qexp, m, n, y):
     """
 
     reconstruction = test_pattern(Peaks.from_array(peak_array, insts, 0),
-                                  fixed_params, pexp, m, n)
-    reconstruction = np.maximum(reconstruction, 0)
+                                  fixed_params, pexp, m)
 
     loss = np.sum(np.square(reconstruction - y)) / 2
 
@@ -788,13 +770,13 @@ def test_pattern_grad_helper(x, r, amps, shifts,
                 amps[i, np.newaxis] * pat_amps[i, j]
                 * (x - shifts[i, np.newaxis] - pat_shifts[i,j])
                 / pat_sigmas[i, j]**2 * spect.gauss(x - shifts[i, np.newaxis]
-                                                   - pat_shifts[i, j],
-                                                   pat_sigmas[i, j], False))
+                                                    - pat_shifts[i, j],
+                                                    pat_sigmas[i, j], False))
 
     return grad
 
 def test_pattern_grad(peak_array, insts, fixed_params, pexp, qexp,
-                      m, n, y):
+                      m, y):
     """
     Gradient for a test pattern.
 
@@ -812,8 +794,6 @@ def test_pattern_grad(peak_array, insts, fixed_params, pexp, qexp,
         (ignored)
     m : int
         (ignored)
-    n : int
-        (ignored)
     y : array_like
         Evaluation of the test pattern
 
@@ -830,8 +810,7 @@ def test_pattern_grad(peak_array, insts, fixed_params, pexp, qexp,
     x, pat_amps, pat_shifts, pat_sigmas = fixed_params
 
     peaks = Peaks.from_array(peak_array, insts, 0)
-    reconstruction = test_pattern(peaks, fixed_params, pexp, m, n)
-    reconstruction = np.maximum(reconstruction, 0)
+    reconstruction = test_pattern(peaks, fixed_params, pexp, m)
     amps, shifts, params, insts = peaks.get_params()
     expvec = reconstruction - y
     grad = test_pattern_grad_helper(x, expvec, amps, shifts, pat_amps[insts, :],

@@ -28,6 +28,13 @@ musisep.audio.wav module
     :undoc-members:
     :show-inheritance:
 
+musisep.audio.wav module
+------------------------
+
+.. automodule:: musisep.audio.spect
+    :members:
+    :undoc-members:
+    :show-inheritance:
 
 Module contents
 ---------------

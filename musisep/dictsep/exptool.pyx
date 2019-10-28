@@ -15,12 +15,12 @@ cpdef double[:] inst_shift(double[:] amps, double[:] shifts, double[:] sigmas,
                            double[:] spreads, long[:] insts,
                            double[:,:] inst_dict, double harscale,
                            double pexp,
-                           int m, int n):
+                           int m):
     cdef double[:] expvec = np.zeros(m, dtype='double')
     cdef double amp, shift, sigma, spread, hcorr, hshift, hamp, entry
     cdef int lo, hi, i, j, h, inst
     
-    for j in range(n):
+    for j in range(amps.size):
         amp = amps[j]
         sigma = sigmas[j]
         shift = shifts[j]
@@ -54,7 +54,8 @@ cpdef double[:] inst_shift_grad(double[:] expvec,
                                 double[:] spreads, long[:] insts,
                                 double[:,:] inst_dict, double harscale,
                                 double pexp,
-                                int m, int n):
+                                int m):
+    cdef int n = amps.size
     cdef double[:] expgrad = np.zeros(4 * n, dtype='double')
     cdef double amp, shift, sigma, spread
     cdef double diff_amp, diff_shift, diff_sigma, diff_spread    
@@ -107,8 +108,10 @@ cpdef double[:, :] inst_shift_dict_grad(double[:] expvec,
                                         double[:, :] inst_dict,
                                         double harscale,
                                         double pexp,
-                                        int m, int n):
-    cdef double[:, :] dictgrad = np.zeros((inst_dict.shape[0], inst_dict.shape[1]),
+                                        int m):
+    cdef int n = amps.size
+    cdef double[:, :] dictgrad = np.zeros((inst_dict.shape[0],
+                                           inst_dict.shape[1]),
                                              dtype='double')
     cdef double amp, shift, sigma, spread
     cdef double hcorr, hshift, hentry, hamp, expval, factor
@@ -148,7 +151,8 @@ cpdef double[:] inst_scale(double[:] amps, double[:] shifts, double[:] sigmas,
                            double[:] spreads, long[:] insts,
                            double[:,:] inst_dict,
                            double pexp,
-                           int m, int n):
+                           int m):
+    cdef int n = amps.size
     cdef double[:] expvec = np.zeros(m, dtype='double')
     cdef double amp, shift, sigma, spread, hcorr, hshift, hamp, entry
     cdef int lo, hi, i, j, h, inst
@@ -187,7 +191,8 @@ cpdef double[:] inst_scale_grad(double[:] expvec,
                                 double[:] spreads, long[:] insts,
                                 double[:,:] inst_dict,
                                 double pexp,
-                                int m, int n):
+                                int m):
+    cdef int n = amps.size
     cdef double[:] expgrad = np.zeros(4 * n, dtype='double')
     cdef double amp, shift, sigma, spread
     cdef double diff_amp, diff_shift, diff_sigma, diff_spread    
