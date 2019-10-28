@@ -4,9 +4,9 @@ This software package is designed to separate the contributions of
 different musical instruments in an audio recording.  The algorithms
 are documented in:
 
-* Sören Schulze, Emily J. King:  Musical Instrument Separation on
-  Shift-Invariant Spectrograms via Stochastic Dictionary Learning.
-  2018.  <https://arxiv.org/abs/1806.00273>.
+* Sören Schulze, Emily J. King:  Sparse Pursuit and Dictionary
+  Learning for Blind Source Separation in Polyphonic Music Recordings.
+  2019.  <https://arxiv.org/abs/1806.00273>.
 
 Please cite this paper if you use the software in any academic
 context.  Further description is available on the [website of the
