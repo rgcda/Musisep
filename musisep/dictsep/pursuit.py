@@ -258,7 +258,7 @@ def inst_shift_obj(peak_array, insts, fixed_params, pexp, qexp,
     reconstruction = inst_shift(Peaks.from_array(peak_array, insts, 2),
                                 fixed_params, pexp, m)
     
-    return np.sum(np.square(reconstruction**qexp - y**qexp)) / 2
+    return np.sum(np.square((reconstruction+1e-7)**qexp - (y+1e-7)**qexp)) / 2
 
 def inst_shift_grad(peak_array, insts, fixed_params, pexp, qexp, m, y):
     """
@@ -294,8 +294,8 @@ def inst_shift_grad(peak_array, insts, fixed_params, pexp, qexp, m, y):
     reconstruction = inst_shift(peaks, fixed_params, pexp, m)
     amps, shifts, params, insts = peaks.get_params()
     sigmas, spreads = params
-    expvec = ((reconstruction**qexp - y**qexp)
-              * (reconstruction+1e-40) ** (qexp - pexp) * qexp)
+    expvec = (((reconstruction+1e-7)**qexp - (y+1e-7)**qexp)
+              * (reconstruction+1e-7) ** (qexp - pexp) * qexp)
     grad = exptool.inst_shift_grad(expvec, amps, shifts, sigmas, spreads, insts,
                                    inst_dict, harscale, pexp-1, m)
     grad = np.asarray(grad)
@@ -338,8 +338,8 @@ def inst_shift_dict_grad(peak_array, insts, fixed_params, pexp, qexp, m, y):
     reconstruction = inst_shift(peaks, fixed_params, pexp, m)
     amps, shifts, params, insts = peaks.get_params()
     sigmas, spreads = params
-    expvec = ((reconstruction**qexp - y**qexp)
-              * (reconstruction+1e-40) ** (qexp - pexp) * qexp)
+    expvec = (((reconstruction+1e-7)**qexp - (y+1e-7)**qexp)
+              * (reconstruction+1e-7) ** (qexp - pexp) * qexp)
     grad = exptool.inst_shift_dict_grad(expvec, amps, shifts, sigmas, spreads,
                                         insts, inst_dict, harscale, pexp-1, m)
     grad = np.asarray(grad)
