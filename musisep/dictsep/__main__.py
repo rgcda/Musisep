@@ -21,10 +21,19 @@ from ..audio import wav
 from ..audio import performance
 from . import dictlearn
 
-def main(mixed_soundfile, orig_soundfiles, out_name, inst_num, tone_num,
+def correct_signal_length(signal, length):
+    if signal.size > length:
+        return signal[:length]
+    elif signal.size < length:
+        return np.concatenate([signal, np.zeros(length - signal.size)])
+    else:
+        return signal
+
+def main(mixed_soundfile, orig_soundfiles, out_name, out_name_run_suffix,
+         inst_num, tone_num,
          pexp, qexp, har, sigmas, sampdist, spectheight, logspectheight,
          minfreq, maxfreq, runs, lifetime, num_dicts, mask, color, plot_range,
-         spect_method):
+         spect_method, supply_dicts):
     """
     Wrapper function for the dictionary learning algorithm.
 
@@ -91,7 +100,9 @@ def main(mixed_soundfile, orig_soundfiles, out_name, inst_num, tone_num,
     if orig_soundfiles is None:
         orig_signals = None
     else:
-        orig_signals = np.asarray([wav.read(f)[0] for f in orig_soundfiles])
+        orig_signals = np.asarray(
+            [correct_signal_length(wav.read(f)[0], signal.size)
+             for f in orig_soundfiles])
         orig_spectrums = [spect.spectrogram(
             os, spectheight, sigmas, sampdist)[:spectheight, :]
             for os in orig_signals]
@@ -137,13 +148,16 @@ def main(mixed_soundfile, orig_soundfiles, out_name, inst_num, tone_num,
                          logspect[:, plot_range], color)
 
     audio_measures = []
+    inst_dicts = []
 
     for r in range(0, num_dicts):
         print("seed: {}".format(r))
-        out_name_run = out_name + '-{}'.format(r)
+        out_name_run = out_name + out_name_run_suffix + '-{}'.format(r)
         np.random.seed(r)
 
-        if os.path.exists('output/{}-dict.npy'.format(out_name_run)):
+        if supply_dicts is not None:
+            inst_dict = supply_dicts[r]
+        elif os.path.exists('output/{}-dict.npy'.format(out_name_run)):
             inst_dict = np.load('output/{}-dict.npy'.format(out_name_run))
         else:
             inst_dict = dictlearn.learn_spect_dict(
@@ -152,6 +166,7 @@ def main(mixed_soundfile, orig_soundfiles, out_name, inst_num, tone_num,
             np.save('output/{}-dict.npy'.format(out_name_run), inst_dict)
 
         print(inst_dict)
+        inst_dicts.append(inst_dict)
 
         if os.path.exists('output/{}-spect.pkl'.format(out_name_run)):
             [dict_spectrum, inst_spectrums,
@@ -229,12 +244,15 @@ def main(mixed_soundfile, orig_soundfiles, out_name, inst_num, tone_num,
         print("Global measures best:")
         print(audio_measures[bestidx, :, :])
 
-def separate_two(mixed_soundfile, orig_soundfiles, out_name, inst_num=2,
+    return inst_dicts
+
+def separate_two(mixed_soundfile, orig_soundfiles, out_name, out_name_run_suffix="",
+                 inst_num=2,
                  tone_num=1, pexp=1, qexp=0.5, har=25, sigmas=6, sampdist=256,
                  spectheight=6*1024, logspectheight=1024, minfreq=20,
                  maxfreq=20480, runs=10000, lifetime=500, num_dicts=10,
                  mask=True, color=False, plot_range=None,
-                 spect_method="pursuit"):
+                 spect_method="pursuit", supply_dicts=None):
     """
     Separation of a sample with two instruments with sensible default
     parameters.
@@ -287,10 +305,11 @@ def separate_two(mixed_soundfile, orig_soundfiles, out_name, inst_num=2,
         sparse pursuit.
     """
 
-    main(mixed_soundfile, orig_soundfiles, out_name, inst_num, tone_num,
-         pexp, qexp, har, sigmas, sampdist, spectheight, logspectheight,
-         minfreq, maxfreq, runs, lifetime, num_dicts, mask, color, plot_range,
-         spect_method)
+    return main(mixed_soundfile, orig_soundfiles, out_name, out_name_run_suffix,
+                inst_num, tone_num,
+                pexp, qexp, har, sigmas, sampdist, spectheight, logspectheight,
+                minfreq, maxfreq, runs, lifetime, num_dicts, mask, color,
+                plot_range, spect_method, supply_dicts)
 
 def separate_mozart_recorder_violin():
     "Separation of recorder and violin on the piece by Mozart"
@@ -340,6 +359,38 @@ def separate_mozart_clarinet_piano():
                                   'input/mozart-cl/piano-low.wav'],
                  out_name='mozart-cl/mozart')
 
+def separate_frere_jacques():
+    """
+    Separation of Bb tin whistle and viola and generalization to
+    C tin whistle and violin, then vice versa.
+    """
+
+    inst_dicts = separate_two(mixed_soundfile='input/fj/bb.wav',
+                              orig_soundfiles=['input/fj/bb-tw.wav',
+                                               'input/fj/bb-viola.wav'],
+                              out_name='fj/bb',
+                              runs=100000)
+    separate_two(mixed_soundfile='input/fj/c.wav',
+                 orig_soundfiles=['input/fj/c-tw.wav',
+                                  'input/fj/c-violin.wav'],
+                 out_name='fj/c',
+                 out_name_run_suffix='-gen',
+                 runs=100000,
+                 supply_dicts=inst_dicts)
+
+    inst_dicts = separate_two(mixed_soundfile='input/fj/c.wav',
+                              orig_soundfiles=['input/fj/c-tw.wav',
+                                               'input/fj/c-violin.wav'],
+                              out_name='fj/c',
+                              runs=100000)
+    separate_two(mixed_soundfile='input/fj/bb.wav',
+                 orig_soundfiles=['input/fj/bb-tw.wav',
+                                  'input/fj/bb-viola.wav'],
+                 out_name='fj/bb',
+                 out_name_run_suffix='-gen',
+                 supply_dicts=inst_dicts,
+                 runs=100000)
+
 def separate_jaiswal(number):
     """
     Separation of the data by Jaiswal et al.
@@ -355,11 +406,41 @@ def separate_jaiswal(number):
                                   'input/jaiswal/test{}-02.wav'.format(number)],
                  out_name='jaiswal/jaiswal{}'.format(number))
 
+def separate_duan():
+    """
+    Separation of the data by Duan et al.
+
+    Parameters
+    ----------
+    number : int
+        Number of the sample to be considered.
+    """
+
+    separate_two(mixed_soundfile='input/duan/Euphonium_Oboe.wav',
+                 orig_soundfiles=['input/duan/Oboe.wav',
+                                  'input/duan/Euphonium.wav'],
+                 out_name='duan/eo')
+
+    separate_two(mixed_soundfile='input/duan/dyrcj_wqyn.wav',
+                 orig_soundfiles=['input/duan/dyrcj_piccolo.wav',
+                                  'input/duan/wqyn_organ.wav'],
+                 out_name='duan/po-slow')
+
+    separate_two(mixed_soundfile='input/duan/dyrcj_wqyn_fywz.wav',
+                 orig_soundfiles=['input/duan/dyrcj_piccolo.wav',
+                                  'input/duan/wqyn_organ.wav',
+                                  'input/duan/fywz_oboe.wav'],
+                 out_name='duan/poo',
+                 inst_num=3)
+
 if __name__ == '__main__':
     separate_mozart_recorder_violin()
     separate_mozart_recorder_violin_mel()
     separate_mozart_clarinet_piano()
+    separate_frere_jacques()
 
     # The number of the sample is given via command line.
     # Unfortunately, we cannot distribute the data.
-    #separate_jaiswal(int(sys.argv[1]))
+    separate_jaiswal(int(sys.argv[1]))
+
+    separate_duan()

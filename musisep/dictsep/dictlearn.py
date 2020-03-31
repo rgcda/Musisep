@@ -110,6 +110,7 @@ def stoch_grad(y, inst_dict, tone_num, adam, fsigma, harscale, baseshift,
     print("abserr (before): %g" % abserr_old)
 
     inst_dict = adam.step(-grad)
+    fixed_params = (inst_dict, harscale)
 
     reconstruction_new = pursuit.inst_shift(peaks, fixed_params, pexp, y.size)
     abserr_new = np.linalg.norm(reconstruction_new**qexp - y**qexp)
@@ -135,7 +136,7 @@ def gen_random_inst(har):
         Harmonic amplitudes for one instrument, unified to an interval of [0,1]
     """
 
-    e = - np.random.pareto(2)
+    e = - np.random.pareto(0.5)
     coeffs = np.random.rand(har)
     inst = np.arange(1, har+1) ** e * coeffs
 

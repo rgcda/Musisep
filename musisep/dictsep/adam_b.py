@@ -33,7 +33,7 @@ class Adam_B:
     """
 
     def __init__(self, init, lo=0, hi=1,
-                 alpha=1e-4, beta1=0.9, beta2=0.999, eps=1e-8):
+                 alpha=1e-3, beta1=0.9, beta2=0.999, eps=1e-8):
         init = np.asarray(init)
         n = init.shape[1]
         self.lo = lo
