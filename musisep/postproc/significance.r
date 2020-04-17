@@ -1,0 +1,21 @@
+mozart.mask <- read.table('../output/mozart/mozart-mask-measures.dat')
+mozart.nomask <- read.table('../output/mozart/mozart-nomask-measures.dat')
+mozart.mel.mask <- read.table('../output/mozart_mel/mozart-mask-measures.dat')
+mozart.mel.nomask <- read.table('../output/mozart_mel/mozart-nomask-measures.dat')
+
+wilcox.test(mozart.mask$V1, mozart.nomask$V1, 'greater', paired=TRUE)
+wilcox.test(mozart.mask$V2, mozart.nomask$V2, 'greater', paired=TRUE)
+wilcox.test(mozart.mask$V1, mozart.mel.mask$V1, 'greater', paired=TRUE)
+wilcox.test(mozart.mask$V2, mozart.mel.mask$V2, 'greater', paired=TRUE)
+wilcox.test(mozart.nomask$V1, mozart.mel.nomask$V1, 'greater', paired=TRUE)
+wilcox.test(mozart.nomask$V2, mozart.mel.nomask$V2, 'greater', paired=TRUE)
+
+bb.mask <- read.table('../output/fj/bb-mask-measures.dat')
+bb.gen.mask <- read.table('../output/fj/bb-gen-mask-measures.dat')
+c.mask <- read.table('../output/fj/c-mask-measures.dat')
+c.gen.mask <- read.table('../output/fj/c-gen-mask-measures.dat')
+
+wilcox.test(bb.mask$V1, bb.gen.mask$V1, paired=TRUE)
+wilcox.test(bb.mask$V2, bb.gen.mask$V2, paired=TRUE)
+wilcox.test(c.mask$V1, c.gen.mask$V1, paired=TRUE)
+wilcox.test(c.mask$V2, c.gen.mask$V2, paired=TRUE)

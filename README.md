@@ -39,7 +39,7 @@ make -C docs html
 ```
 
 The input data can be obtained from:
-<http://www.math.uni-bremen.de/cda/software/Musisep-data.zip>.  It
+<https://www.math.colostate.edu/~king/software/Musisep-data.zip>.  It
 should be unzipped to the main directory.
 
 ## Running the test case
@@ -51,7 +51,7 @@ python3 -m musisep.dictsep
 
 ## License
 
-Copyright (C) 2018-2019 Sören Schulze
+Copyright (C) 2018-2020 Sören Schulze
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
