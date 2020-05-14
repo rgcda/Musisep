@@ -6,7 +6,7 @@ are documented in:
 
 * Sören Schulze, Emily J. King:  Sparse Pursuit and Dictionary
   Learning for Blind Source Separation in Polyphonic Music Recordings.
-  2019.  <https://arxiv.org/abs/1806.00273>.
+  2020.  <https://arxiv.org/abs/1806.00273>.
 
 Please cite this paper if you use the software in any academic
 context.  Further description is available on the [website of the
