@@ -50,7 +50,7 @@ def main(mixed_soundfile, orig_soundfiles, out_name, out_name_run_suffix="",
          sampdist=256, spectheight=6*1024, logspectheight=1024, minfreq=20,
          maxfreq=20480, runs=10000, lifetime=500, num_dicts=10, mask=True,
          color=False, plot_range=None, spect_method="pursuit",
-         supply_dicts=None):
+         supply_dicts=None, spect_plots=()):
     """
     Wrapper function for the dictionary learning algorithm.
 
@@ -105,6 +105,8 @@ def main(mixed_soundfile, orig_soundfiles, out_name, out_name_run_suffix="",
     supply_dicts : NoneType or list of array_like
         Is specified, use the given dictionaries rather than computing
         new ones
+    spect_plots : sequence of int
+        Time frames for which to output the spectrum as a text file
 
     Returns
     -------
@@ -115,6 +117,7 @@ def main(mixed_soundfile, orig_soundfiles, out_name, out_name_run_suffix="",
     signal, samprate = wav.read(mixed_soundfile)
 
     plotlen = signal.size
+    freqrange = np.linspace(0, samprate/2000, spectheight, endpoint=False)
 
     orig_spectrum = spect.spectrogram(
         signal, spectheight, sigmas, sampdist)[:spectheight, :]
@@ -123,6 +126,9 @@ def main(mixed_soundfile, orig_soundfiles, out_name, out_name_run_suffix="",
         spect.spectwrite('output/{}-orig.png'.format(out_name),
                          orig_spectrum[:spectheight, plot_range],
                          color)
+    for sp in spect_plots:
+        np.savetxt('output/{}-orig-{}.dat'.format(out_name, sp),
+                   np.stack([freqrange, orig_spectrum[:spectheight, sp]], axis=1))
 
     if orig_soundfiles is None:
         orig_signals = None
@@ -173,6 +179,10 @@ def main(mixed_soundfile, orig_soundfiles, out_name, out_name_run_suffix="",
                          linspect[:, plot_range], color)
         spect.spectwrite('output/{}-log.png'.format(out_name),
                          logspect[:, plot_range], color)
+
+    for sp in spect_plots:
+        np.savetxt('output/{}-lin-{}.dat'.format(out_name, sp),
+                   np.stack([freqrange, linspect[:, sp]], axis=1))
 
     audio_measures = []
     inst_dicts = []
@@ -226,6 +236,9 @@ def main(mixed_soundfile, orig_soundfiles, out_name, out_name_run_suffix="",
             spect.spectwrite('output/{}-synth-lin-{}.png'
                              .format(out_name_run, mask_str),
                              dict_spectrum_lin[:, plot_range], color)
+            for sp in spect_plots:
+                np.savetxt('output/{}-synth-lin-{}-{}.dat'.format(out_name_run, mask_str, sp),
+                           np.stack([freqrange, dict_spectrum_lin[:, sp]], axis=1))
             for i in range(len(inst_spectrums)):
                 spect.spectwrite(
                     'output/{}-synth{}.png'
@@ -235,6 +248,9 @@ def main(mixed_soundfile, orig_soundfiles, out_name, out_name_run_suffix="",
                     'output/{}-synth{}-lin-{}.png'
                     .format(out_name_run, i, mask_str),
                     inst_spectrums_lin[i][:, plot_range], color)
+                for sp in spect_plots:
+                    np.savetxt('output/{}-synth{}-lin-{}-{}.dat'.format(out_name_run, i, mask_str, sp),
+                               np.stack([inst_spectrums_lin[i][:, sp]], axis=1))
 
         siglen = signal.size
         synth_signals = np.zeros((inst_num, siglen))
@@ -326,6 +342,57 @@ def separate_mozart_clarinet_piano():
          out_name='mozart-cl/mozart',
          runs=100000)
 
+def separate_mozart_piano_mock():
+    "Mock separation of the piano track."
+
+    main(mixed_soundfile='input/mozart-cl/piano-low.wav',
+         orig_soundfiles=['input/mozart-cl/piano-low.wav'],
+         out_name='mozart-cl/mozart-mock',
+         runs=100000,
+         inst_num=1,
+         mask=False,
+         plot_range=slice(0, 1580),
+         spect_plots=[100]
+    )
+
+def separate_urmp():
+    "Separation of selected samples from the URMP dataset."
+
+    main(mixed_soundfile='input/URMP/AuMix_03_Dance_fl_cl.wav',
+         orig_soundfiles=['input/URMP/AuSep_1_fl_03_Dance.wav',
+                          'input/URMP/AuSep_2_cl_03_Dance.wav'],
+         out_name='URMP/03',
+         runs=100000)
+    main(mixed_soundfile='input/URMP/AuMix_09_Jesus_tpt_vn.wav',
+         orig_soundfiles=['input/URMP/AuSep_1_tpt_09_Jesus.wav',
+                          'input/URMP/AuSep_2_vn_09_Jesus.wav'],
+         out_name='URMP/09',
+         runs=100000)
+    main(mixed_soundfile='input/URMP/AuMix_10_March_tpt_sax.wav',
+         orig_soundfiles=['input/URMP/AuSep_1_tpt_10_March.wav',
+                          'input/URMP/AuSep_2_sax_10_March.wav'],
+         out_name='URMP/10',
+         runs=100000)
+    main(mixed_soundfile='input/URMP/AuMix_11_Maria_ob_vc.wav',
+         orig_soundfiles=['input/URMP/AuSep_1_ob_11_Maria.wav',
+                          'input/URMP/AuSep_2_vc_11_Maria.wav'],
+         out_name='URMP/11',
+         runs=100000)
+    main(mixed_soundfile='input/URMP/AuMix_17_Nocturne_vn_fl_cl.wav',
+         orig_soundfiles=['input/URMP/AuSep_1_vn_17_Nocturne.wav',
+                          'input/URMP/AuSep_2_fl_17_Nocturne.wav',
+                          'input/URMP/AuSep_3_cl_17_Nocturne.wav'],
+         out_name='URMP/17',
+         runs=100000,
+         inst_num=3)
+    main(mixed_soundfile='input/URMP/AuMix_18_Nocturne_vn_fl_tpt.wav',
+         orig_soundfiles=['input/URMP/AuSep_1_vn_18_Nocturne.wav',
+                          'input/URMP/AuSep_2_fl_18_Nocturne.wav',
+                          'input/URMP/AuSep_3_tpt_18_Nocturne.wav'],
+         out_name='URMP/18',
+         runs=100000,
+         inst_num=3)
+
 def separate_frere_jacques():
     """
     Separation of Bb tin whistle and viola and generalization to
@@ -404,7 +471,9 @@ if __name__ == '__main__':
     separate_mozart_recorder_violin()
     separate_mozart_recorder_violin_mel()
     separate_mozart_clarinet_piano()
+    separate_mozart_piano_mock()
     separate_frere_jacques()
+    separate_urmp()
 
     # The number of the sample is given via command line.
     # Unfortunately, we cannot distribute the data.

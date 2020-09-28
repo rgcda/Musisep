@@ -165,6 +165,10 @@ class Peaks:
         self.params = np.concatenate((self.params, new.params), axis=1)
         self.insts = np.concatenate((self.insts, new.insts))
 
+    def __repr__(self):
+        return "<amps {}, shifts {}, params {}, insts {}>".format(
+            self.amps, self.shifts, self.params, self.insts)
+
 def inst_shift(peaks, fixed_params, pexp, m):
     """
     Synthesize the log-frequency spectrum.
@@ -717,6 +721,7 @@ def test_pattern_obj(peak_array, insts, fixed_params, pexp, qexp, m, y):
     loss = np.sum(np.square(reconstruction - y)) / 2
 
     print("peak_array: {}".format(peak_array))
+    print("insts: {}".format(insts))
     print("loss: {}".format(loss))
     return loss
 
@@ -846,6 +851,7 @@ def test_pursuit():
         y, 1, 1, 4, 2, test_pattern, test_pattern_obj, test_pattern_grad,
         make_bounds, make_inits, fixed_params,
         fft_selector, (baseshift, inst_spect, 1), 1, 1, 0.9)
+    print("peaks", peaks)
 
     inst_spect_hd = test_pattern_comp(x2, pat_amps, pat_shifts, pat_sigmas)
     inst_spect_hd_appl = test_pattern_comp(x2, pat_amps*amps[:, np.newaxis],

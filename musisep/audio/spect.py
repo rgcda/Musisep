@@ -13,7 +13,7 @@ import tensorflow as tf
 import scipy.fftpack as fftpack
 import pyfftw
 import pyfftw.interfaces.scipy_fftpack as fftpack
-import scipy.misc
+import imageio
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -80,13 +80,13 @@ def spectwrite(filename, spectrogram, color="viridis", db=100):
     scalespect = np.minimum(scalespect, 1)
 
     if not color:
-        scipy.misc.imsave(filename, 1 - scalespect)
+        imageio.imwrite(filename, 1 - scalespect)
     elif color == "magma":
         plotspect = cm.magma(1 - scalespect)
-        scipy.misc.imsave(filename, plotspect)
+        imageio.imwrite(filename, plotspect)
     else:
         plotspect = cm.viridis(scalespect)
-        scipy.misc.imsave(filename, plotspect)        
+        imageio.imwrite(filename, plotspect)
 
 def stripe(signal, spectheight, sigmas, sampdist, eval_range):
     """

@@ -8,6 +8,7 @@ from __future__ import absolute_import, division, print_function
 
 import numpy as np
 import scipy.io.wavfile as wav
+import soundfile as sf
 
 def unify(in_data):
     """
@@ -57,8 +58,7 @@ def read(filename):
         Sampling rate of the WAV file.
     """
 
-    samprate, rawdata = wav.read(filename)
-    data = unify(rawdata)
+    data, samprate = sf.read(filename)
 
     if len(data.shape) == 2:
         data = np.mean(data, axis=1)
@@ -88,7 +88,7 @@ def read_stereo(filename):
 
     return data.T
 
-def write(filename, signal, samprate):
+def write(filename, signal, samprate, normalize=False):
     """
     Normalize WAV audio data and write it to a file.  The data type should be
     floating-point and must be supported by scipy.io.wavfile.
@@ -101,6 +101,8 @@ def write(filename, signal, samprate):
         Audio data to write.
     samprate : int
         Intended sampling rate of the WAV file.
+    normalize : bool
+        Whether to normalize the output to [-1,1].
 
     Returns
     -------
@@ -110,7 +112,8 @@ def write(filename, signal, samprate):
 
     maxval = np.amax(np.abs(signal))
     print("maxval for {}: {}".format(filename, maxval))
-    signal = signal / (maxval + 1e-40)
+    if normalize:
+        signal = signal / (maxval + 1e-40)
     wav.write(filename, samprate, signal)
 
     return maxval

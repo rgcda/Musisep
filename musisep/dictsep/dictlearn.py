@@ -374,8 +374,7 @@ def synth_spect(spect, tone_num, inst_dict, fsigma, spectheight, pexp, qexp,
                                  (baseshift, inst_spect, qexp), pexp, qexp, beta)
         dict_spectrum[:, j] = reconstruction
         lin_peaks = peaks.copy()
-        print("params:")
-        print(peaks.params)
+        print(peaks)
         lin_peaks.shifts = (np.exp(peaks.shifts * (np.log(maxfreq / minfreq)
                                                    / numfreqs))
                             * minfreq)
