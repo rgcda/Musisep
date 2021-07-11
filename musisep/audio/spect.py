@@ -187,11 +187,12 @@ def istft(spect, siglen, sigmas, sampdist):
     """
 
     spect = np.asarray(spect)
-    spectheight = spect.shape[0]//2
+    spectheight = spect.shape[0]
 
-    fft_object = pyfftw.builders.ifft(spect, axis=0, threads=8,
-                                      overwrite_input=False, avoid_copy=True)
-    stripeplot = np.real(fft_object())
+    fft_object = pyfftw.builders.irfft(spect, n=spectheight*2,
+                                       axis=0, threads=8,
+                                       overwrite_input=False)
+    stripeplot = fft_object()
     signal = np.zeros(siglen)
     window = gauss(np.arange(-spectheight, spectheight), spectheight / sigmas)
 
@@ -260,11 +261,7 @@ def synth_audio(spect, siglen, sigmas, sampdist, iterations,
     spectheight = spect.shape[0]
     
     origspect = spect
-    spect = pyfftw.zeros_aligned((2*spectheight, spect.shape[1]),
-                                 dtype='float64', order='F')
-    spect[:spectheight, :] = origspect
-    spect[2*spectheight-1:spectheight:-1, :] = origspect[1:, :]
-    origspect = spect
+
     if guess is None:
         sigold = np.zeros(siglen)
     else:
@@ -293,7 +290,8 @@ def synth_audio(spect, siglen, sigmas, sampdist, iterations,
                 cuthi = pos[j + size]
             else:
                 cuthi = hi
-            spect = stft(sigold[lo:hi], spectheight, sigmas, sampdist)
+            spect = stft(sigold[lo:hi], spectheight,
+                         sigmas, sampdist)[:spectheight]
             specttool.adapt_mag(
                 spect, origspect[:, (lo//sampdist):((hi-1)//sampdist+1)],
                 *spect.shape)
@@ -303,7 +301,62 @@ def synth_audio(spect, siglen, sigmas, sampdist, iterations,
 
     return signew, spect[:spectheight, :]
 
-def winlog_spect(spect, freqs, basefreq, sigmas):
+def project_audio(spect, siglen, sigmas, sampdist, size=2000):
+    """
+    Reconstruct an audio signal from a linear-frequency complex
+    spectrogram via orthogonal projection.
+
+    Parameters
+    ----------
+    spect : array_like
+        Linear-frequency magnitude spectrogram
+    siglen : int
+        Intended length of the audio signal
+    sigmas : float
+        Number of standard deviations after which to cut the window
+    sampdist : int
+        Time intervals to sample the spectrogram
+    size : int
+        Batch size for the FFT
+
+    Returns
+    -------
+    signal : ndarray
+        Reconstructed audio signal
+    """
+
+    spect = np.asarray(spect)
+    spectheight = spect.shape[0]
+
+    origspect = spect
+
+    throwaway = ((spectheight-1) // sampdist + 1) * 2
+
+    signal = np.zeros(siglen)
+    pos = np.arange(0, siglen, sampdist)
+    lo = 0
+    cutlo = 0
+    for j in np.arange(0, pos.size, size):
+        cutlo = pos[j]
+        if j >= throwaway:
+            lo = pos[j - throwaway]
+        else:
+            lo = pos[0]
+        if pos.size > j + size + throwaway:
+            hi = pos[j + size + throwaway]
+        else:
+            hi = siglen
+        if pos.size > j + size:
+            cuthi = pos[j + size]
+        else:
+            cuthi = hi
+        spect = origspect[:, (lo//sampdist):((hi-1)//sampdist+1)]
+        frag = istft(spect, hi-lo, sigmas, sampdist)
+        signal[cutlo:cuthi] = frag[cutlo-lo:cuthi-lo]
+
+    return signal
+
+def winlog_spect(spect, freqs, basefreq, sigmas, scale=True):
     """
     Apply a logarithmic transform on the frequency axis of a linear-frequency
     magnitude spectrogram while preserving the width of the horizontal lines
@@ -322,6 +375,8 @@ def winlog_spect(spect, freqs, basefreq, sigmas):
         (normalized to the sampling frequency)
     sigmas : float
         Number of standard deviations after which to cut the kernel
+    scale : bool
+        Whether to adjust the l1 norm of the kernels w.r.t. frequency
 
     Returns
     -------
@@ -345,8 +400,9 @@ def winlog_spect(spect, freqs, basefreq, sigmas):
             width = int(np.ceil(sigma * sigmas))
             lo = max(0, width - freqint)
             hi = min(2*width, spect.shape[0] - freqint + width)
-            window = (gauss(np.arange(lo-width, hi-width) - freqdiff, sigma)
-                      * stretch)
+            window = gauss(np.arange(lo-width, hi-width) - freqdiff, sigma)
+            if scale:
+                window *= stretch
             logspectrow = np.sum(window.reshape(hi-lo, 1)
                                  * spect[freqint-width+lo:freqint-width+hi, :],
                                  axis=0)
@@ -357,7 +413,8 @@ def winlog_spect(spect, freqs, basefreq, sigmas):
     return logspect
 
 def logspect_mel(signal, spectheight, sigmas, sampdist, basefreq,
-                 minfreq, maxfreq, numfreqs, eval_range=slice(None, None)):
+                 minfreq, maxfreq, numfreqs, eval_range=slice(None, None),
+                 scale=True):
     """
     Compute the Mel-frequency spectrogram of an audio signal.
 
@@ -384,6 +441,8 @@ def logspect_mel(signal, spectheight, sigmas, sampdist, basefreq,
         Height of the log-frequency spectrogram
     eval_range : slice
         Time range of the spectrogram to be computed
+    scale : bool
+        Whether to adjust the l1 norm of the kernels w.r.t. frequency
 
     Returns
     -------
@@ -400,9 +459,24 @@ def logspect_mel(signal, spectheight, sigmas, sampdist, basefreq,
 
     spect = (spectrogram(signal, spectheight, sigmas, sampdist, eval_range)
              [:spectheight, :]**2)
-    logspect = winlog_spect(spect, freqs, basefreq, sigmas)
+    logspect = winlog_spect(spect, freqs, basefreq, sigmas, scale)
         
     return logspect, spect
+
+def smoothconv(signal, window, kernel, sampdist):
+    signal = tf.convert_to_tensor(signal, dtype=tf.float64)
+    window = tf.convert_to_tensor(window, dtype=tf.float64)
+    kernel = tf.convert_to_tensor(kernel, dtype=tf.float64)
+
+    row = tf.nn.conv2d(tf.reshape(signal, [1, 1, -1, 1]),
+                       tf.reshape(window, [1, -1, 1, 2]),
+                       [1, 1, 1, 1], 'SAME')
+    y = tf.nn.conv2d(tf.sqrt(tf.square(row[:,:,:,0:1])
+                             + tf.square(row[:,:,:,1:2])),
+                     tf.reshape(kernel, [1, -1, 1, 1]),
+                     [1, 1, sampdist, 1], 'SAME')
+
+    return y
 
 def logspect_cq(signal, spectheight, sigmas, sampdist, basefreq,
                 minfreq, maxfreq, numfreqs, smooth=True):
@@ -443,18 +517,6 @@ def logspect_cq(signal, spectheight, sigmas, sampdist, basefreq,
                         endpoint=False)
     samppos = np.arange(0, signal.size, sampdist)
     spect = np.zeros((numfreqs, samppos.size))
-
-    with tf.Graph().as_default():
-        win_var = tf.placeholder(tf.float64, [None, 2])
-        smooth_var = tf.placeholder(tf.float64, [None])
-        row_var = tf.nn.conv2d(tf.reshape(tf.to_double(signal), [1, 1, -1, 1]),
-                               tf.reshape(win_var, [1, -1, 1, 2]),
-                               [1, 1, 1, 1], 'SAME')
-        y_var = tf.nn.conv2d(tf.sqrt(tf.square(row_var[:,:,:,0:1])
-                                     + tf.square(row_var[:,:,:,1:2])),
-                             tf.reshape(smooth_var, [1, -1, 1, 1]),
-                             [1, 1, sampdist, 1], 'SAME')
-        sess = tf.Session()
     
     for i in range(freqs.size):
         freq = freqs[i]
@@ -470,16 +532,17 @@ def logspect_cq(signal, spectheight, sigmas, sampdist, basefreq,
         if stretch >= 1 - 1e-6 or not smooth:
             convwindow = [1]
         else:
-            sigmaadd = spectheight * np.sqrt(1 - np.square(stretch)) #/ np.sqrt(2)
+            sigmaadd = spectheight * np.sqrt(1 - np.square(stretch))
             sigmaaddlen = int(np.ceil(sigmaadd))
             convwindow = gauss(np.arange(-sigmaaddlen, sigmaaddlen+1),
                                sigmaadd / sigmas)
-        y_val, = sess.run([y_var],
-                          feed_dict={
-                              win_var: np.vstack((np.real(window),
-                                                  np.imag(window))).T,
-                              smooth_var: convwindow})
-        spect[i,:] = np.ravel(y_val)
+
+        y = smoothconv(signal,
+                       np.vstack((np.real(window),
+                                  np.imag(window))).T,
+                       convwindow,
+                       sampdist)
+        spect[i,:] = np.ravel(y)
 
     return spect
 
@@ -591,19 +654,28 @@ def example_delta_octaves():
     spectheight = 1024*6
 
     spect = spectrogram(signal, spectheight, 6, 128)
-    spectwrite('delta+octaves_lin.png', spect[:spectheight, :])
+    spectwrite('delta+octaves_lin.png', spect[:spectheight, :],
+               color=False, db=30)
 
     spect = logspect_mel(signal, spectheight, 6, 128, 640/48000,
-                          640/48000, 20480/48000, 1024)[0]
-    spectwrite('delta+octaves_mel.png', np.sqrt(spect))
+                         640/48000, 20480/48000, 1024, scale=True)[0]
+    spectwrite('delta+octaves_mel_pi.png', np.sqrt(spect),
+               color=False, db=30)
+
+    spect = logspect_mel(signal, spectheight, 6, 128, 640/48000,
+                         640/48000, 20480/48000, 1024, scale=False)[0]
+    spectwrite('delta+octaves_mel_fu.png', np.sqrt(spect),
+               color=False, db=30)
 
     spect = logspect_cq(signal, spectheight, 6, 128, 640/48000,
                         640/48000, 20480/48000, 1024, False)
-    spectwrite('delta+octave_cq.png', spect)
+    spectwrite('delta+octave_cq.png', spect,
+               color=False, db=60)
 
     spect = logspect_cq(signal, spectheight, 6, 128, 640/48000,
                         640/48000, 20480/48000, 1024)
-    spectwrite('delta+octave_cq_smooth.png', spect)
+    spectwrite('delta+octave_cq_smooth.png', spect,
+               color=False, db=30)
 
 def example_delta_scale():
     """
@@ -680,8 +752,16 @@ def example_mozart():
                                  eval_range=slice(0, 1580))[0]
         spectwrite(fs, spect, None)
 
+def example_beethoven():
+    signal = wav.read('input/beethoven.wav')[0]
+    spectheight = 1024*6
+    spect = spectrogram(signal, spectheight, 6, 128)
+    spectwrite('beethoven_lin.png', spect[:spectheight//4, :],
+               color=False, db=50)
+
 if __name__ == '__main__':
     example_delta_octaves()
     example_delta_scale()
     example_brahms()
     example_mozart()
+    example_beethoven()

@@ -8,6 +8,7 @@ Subpackages
 
     musisep.audio
     musisep.dictsep
+    musisep.neuralsep
 
 Module contents
 ---------------
