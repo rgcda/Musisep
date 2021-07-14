@@ -7,10 +7,11 @@ are documented in:
 * Sören Schulze, Emily J. King:  Sparse Pursuit and Dictionary
   Learning for Blind Source Separation in Polyphonic Music Recordings.
   EURASIP J. Audio Speech Music Process. 2021.
-  doi:10.1186/s13636-020-00190-4.
+  [doi:10.1186/s13636-020-00190-4](https://doi.org/10.1186/s13636-020-00190-4)
 * Sören Schulze, Johannes Leuschner, Emily J. King:  Training a
   Deep Neural Network via Policy Gradients for Blind Source Separation
   in Polyphonic Music Recordings. 2021.
+  [arXiv:2107.04235](https://arxiv.org/abs/2107.04235)
 
 Please cite at least on of these papers if you use the software in any
 academic context.  Further description is available on the [website of
